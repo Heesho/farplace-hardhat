@@ -164,7 +164,7 @@ async function main() {
   // await deployMiner();
   // await deployAuction();
   // await deployMulticall();
-  // await printDeployment();
+  await printDeployment();
 
   /*********** UPDATE getContracts() with new addresses *************/
 
@@ -208,6 +208,10 @@ async function main() {
 
   // console.log("Slot 0: ", await multicall.getSlot(0));
   // console.log("Slot 0: ", await miner.getSlot(0));
+
+  // increase capacity to 256
+  // await miner.setCapacity(256);
+  // console.log("Capacity set to 256");
 }
 
 main()
