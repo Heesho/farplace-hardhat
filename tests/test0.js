@@ -19,12 +19,13 @@ const AddressDead = "0x000000000000000000000000000000000000dEaD";
 let owner,
   multisig,
   treasury,
+  team,
   user0,
   user1,
   user2,
   user3,
-  provider0,
-  provider1,
+  faction0,
+  faction1,
   entropyProvider;
 let weth, unit, miner, multicall, entropy;
 let auction0, auction1;
@@ -37,12 +38,13 @@ describe("local: test0", function () {
       owner,
       multisig,
       treasury,
+      team,
       user0,
       user1,
       user2,
       user3,
-      provider0,
-      provider1,
+      faction0,
+      faction1,
       entropyProvider,
     ] = await ethers.getSigners();
 
@@ -58,7 +60,8 @@ describe("local: test0", function () {
     miner = await minerArtifact.deploy(
       weth.address,
       entropy.address,
-      treasury.address
+      treasury.address,
+      team.address
     );
     console.log("- Miner Initialized");
 
@@ -98,6 +101,10 @@ describe("local: test0", function () {
 
     await miner.connect(multisig).setTreasury(auction0.address);
     console.log("- treasury set to auction0");
+
+    await miner.connect(multisig).setFaction(faction0.address, true);
+    await miner.connect(multisig).setFaction(faction1.address, true);
+    console.log("- factions whitelisted");
 
     await multicall.connect(multisig).setAuction(auction0.address);
     console.log("- auction0 set to multicall");
@@ -187,11 +194,22 @@ describe("local: test0", function () {
     console.log("URI: ", res.uri);
   });
 
+  it("Increase capacity to 10", async function () {
+    console.log("******************************************************");
+    await miner.connect(multisig).setCapacity(10);
+    console.log("- capacity set to 10");
+  });
+
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 5-30 minutes
+      const timeSkip = Math.floor(Math.random() * 1500) + 300;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -223,11 +241,22 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
+  it("Increase capacity to 20", async function () {
+    console.log("******************************************************");
+    await miner.connect(multisig).setCapacity(20);
+    console.log("- capacity set to 20");
+  });
+
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 25;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 10-45 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 600;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -241,7 +270,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user1)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -259,11 +288,22 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
+  it("Increase capacity to 32", async function () {
+    console.log("******************************************************");
+    await miner.connect(multisig).setCapacity(32);
+    console.log("- capacity set to 32");
+  });
+
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 30;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 15-50 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 900;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -277,7 +317,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user2)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -295,11 +335,22 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
+  it("Increase capacity to 42", async function () {
+    console.log("******************************************************");
+    await miner.connect(multisig).setCapacity(42);
+    console.log("- capacity set to 42");
+  });
+
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 30;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 20-55 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1200;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -313,7 +364,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user3)
-        .mine(provider1.address, index, epochId, deadline, price, uri, {
+        .mine(faction1.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -379,9 +430,14 @@ describe("local: test0", function () {
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 30;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 15-50 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 900;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -395,7 +451,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user0)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -425,9 +481,14 @@ describe("local: test0", function () {
 
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 100;
+    const iterations = 30;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 20-55 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1200;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -441,7 +502,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user1)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -481,9 +542,14 @@ describe("local: test0", function () {
 
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 25;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 25-60 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1500;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -497,7 +563,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user2)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -533,9 +599,14 @@ describe("local: test0", function () {
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 30-65 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1800;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -549,7 +620,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user0)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -557,9 +628,14 @@ describe("local: test0", function () {
 
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 25-60 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1500;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -573,7 +649,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user1)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -581,9 +657,14 @@ describe("local: test0", function () {
 
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 20-55 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1200;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -597,7 +678,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user2)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -605,9 +686,14 @@ describe("local: test0", function () {
 
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 15-50 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 900;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -621,7 +707,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user3)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -651,7 +737,7 @@ describe("local: test0", function () {
 
   it("Miner State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -661,7 +747,7 @@ describe("local: test0", function () {
 
   it("Miner State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -671,7 +757,7 @@ describe("local: test0", function () {
 
   it("Miner State, user3", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user3.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -706,9 +792,14 @@ describe("local: test0", function () {
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 20-55 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1200;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -722,7 +813,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user0)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -730,9 +821,14 @@ describe("local: test0", function () {
 
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 25-60 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1500;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -746,7 +842,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user1)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -754,9 +850,14 @@ describe("local: test0", function () {
 
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 30-65 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1800;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -770,7 +871,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user2)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -778,9 +879,14 @@ describe("local: test0", function () {
 
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 15-50 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 900;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -794,7 +900,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user3)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -812,7 +918,7 @@ describe("local: test0", function () {
 
   it("Miner State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -822,7 +928,7 @@ describe("local: test0", function () {
 
   it("Miner State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -832,7 +938,7 @@ describe("local: test0", function () {
 
   it("Miner State, user3", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getMiner(user3.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -857,9 +963,14 @@ describe("local: test0", function () {
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 25-60 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1500;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -873,7 +984,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user0)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -887,9 +998,14 @@ describe("local: test0", function () {
 
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 30-65 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1800;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -903,7 +1019,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user1)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -917,9 +1033,14 @@ describe("local: test0", function () {
 
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 20-55 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 1200;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -933,7 +1054,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user2)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }
@@ -947,9 +1068,14 @@ describe("local: test0", function () {
 
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
-    const iterations = 42;
+    const iterations = 20;
     const capacity = (await miner.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
+      // Random time skip between 15-50 minutes
+      const timeSkip = Math.floor(Math.random() * 2100) + 900;
+      await ethers.provider.send("evm_increaseTime", [timeSkip]);
+      await ethers.provider.send("evm_mine", []);
+
       const index = Math.floor(Math.random() * capacity);
       const slot = await multicall.getSlot(index);
       const price = slot.price;
@@ -963,7 +1089,7 @@ describe("local: test0", function () {
       const deadline = latest.timestamp + 3600; // +1 hour
       await multicall
         .connect(user3)
-        .mine(provider0.address, index, epochId, deadline, price, uri, {
+        .mine(faction0.address, index, epochId, deadline, price, uri, {
           value: price,
         });
     }

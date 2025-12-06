@@ -50,7 +50,9 @@ contract Unit is ERC20, ERC20Permit, ERC20Votes {
 contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
-    uint256 public constant FEE = 2_000;
+    uint256 public constant TOTAL_FEE = 2_000;
+    uint256 public constant TEAM_FEE = 200;
+    uint256 public constant FACTION_FEE = 200;
     uint256 public constant DIVISOR = 10_000;
     uint256 public constant PRECISION = 1e18;
 
@@ -73,8 +75,10 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
 
     IEntropyV2 entropy;
     address public treasury;
+    address public team;
 
-    uint256 public capacity = 42;
+    uint256 public capacity = 1;
+    mapping(address => bool) public account_IsFaction;
     uint256[] public multipliers;
 
     mapping(uint256 => Slot) public index_Slot;
@@ -99,6 +103,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     error Miner__Expired();
     error Miner__InsufficientFee();
     error Miner__InvalidTreasury();
+    error Miner__InvalidFaction();
     error Miner__CapacityBelowCurrent();
     error Miner__CapacityExceedsMax();
     error Miner__InvalidMultiplier();
@@ -107,7 +112,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     event Miner__Mine(
         address sender,
         address indexed miner,
-        address indexed provider,
+        address indexed faction,
         uint256 indexed index,
         uint256 epochId,
         uint256 price,
@@ -115,17 +120,21 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     );
     event Miner__MultiplierSet(uint256 indexed index, uint256 indexed epochId, uint256 multiplier);
     event Miner__EntropyRequested(uint256 indexed index, uint256 indexed epochId, uint64 indexed sequenceNumber);
-    event Miner__ProviderFee(address indexed provider, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Miner__FactionFee(address indexed faction, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Miner__TreasuryFee(address indexed treasury, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Miner__TeamFee(address indexed team, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Miner__MinerFee(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Miner__Mint(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Miner__TreasurySet(address indexed treasury);
+    event Miner__TeamSet(address indexed team);
+    event Miner__FactionWhitelisted(address indexed faction, bool whitelisted);
     event Miner__CapacitySet(uint256 capacity);
     event Miner__MultipliersSet(uint256[] multipliers);
 
-    constructor(address _quote, address _entropy, address _treasury) {
+    constructor(address _quote, address _entropy, address _treasury, address _team) {
         quote = _quote;
         treasury = _treasury;
+        team = _team;
         startTime = block.timestamp;
         unit = address(new Unit());
         entropy = IEntropyV2(_entropy);
@@ -133,7 +142,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
 
     function mine(
         address miner,
-        address provider,
+        address faction,
         uint256 index,
         uint256 epochId,
         uint256 deadline,
@@ -143,6 +152,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         if (miner == address(0)) revert Miner__InvalidMiner();
         if (block.timestamp > deadline) revert Miner__Expired();
         if (index >= capacity) revert Miner__InvalidIndex();
+        if (faction != address(0) && !account_IsFaction[faction]) revert Miner__InvalidFaction();
 
         Slot memory slotCache = index_Slot[index];
 
@@ -152,25 +162,23 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         if (price > maxPrice) revert Miner__MaxPriceExceeded();
 
         if (price > 0) {
-            uint256 totalFee = price * FEE / DIVISOR;
-            uint256 minerFee = price - totalFee;
-            uint256 providerFee = 0;
-            uint256 treasuryFee = 0;
-
-            if (provider == address(0)) {
-                treasuryFee = totalFee;
-            } else {
-                providerFee = totalFee / 4;
-                treasuryFee = totalFee - providerFee;
-            }
-
-            if (providerFee > 0) {
-                IERC20(quote).safeTransferFrom(msg.sender, provider, providerFee);
-                emit Miner__ProviderFee(provider, index, epochId, providerFee);
-            }
+            uint256 teamFee = team != address(0) ? price * TEAM_FEE / DIVISOR : 0;
+            uint256 factionFee = faction != address(0) ? price * FACTION_FEE / DIVISOR : 0;
+            uint256 treasuryFee = price * TOTAL_FEE / DIVISOR - teamFee - factionFee;
+            uint256 minerFee = price - treasuryFee - teamFee - factionFee;
 
             IERC20(quote).safeTransferFrom(msg.sender, treasury, treasuryFee);
             emit Miner__TreasuryFee(treasury, index, epochId, treasuryFee);
+
+            if (teamFee > 0) {
+                IERC20(quote).safeTransferFrom(msg.sender, team, teamFee);
+                emit Miner__TeamFee(team, index, epochId, teamFee);
+            }
+
+            if (factionFee > 0) {
+                IERC20(quote).safeTransferFrom(msg.sender, faction, factionFee);
+                emit Miner__FactionFee(faction, index, epochId, factionFee);
+            }
 
             IERC20(quote).safeTransferFrom(msg.sender, slotCache.miner, minerFee);
             emit Miner__MinerFee(slotCache.miner, index, epochId, minerFee);
@@ -208,7 +216,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
 
         index_Slot[index] = slotCache;
 
-        emit Miner__Mine(msg.sender, miner, provider, index, epochId, price, uri);
+        emit Miner__Mine(msg.sender, miner, faction, index, epochId, price, uri);
 
         if (shouldUpdateMultiplier) {
             uint128 fee = entropy.getFeeV2();
@@ -268,6 +276,17 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         if (_treasury == address(0)) revert Miner__InvalidTreasury();
         treasury = _treasury;
         emit Miner__TreasurySet(_treasury);
+    }
+
+    function setTeam(address _team) external onlyOwner {
+        team = _team;
+        emit Miner__TeamSet(_team);
+    }
+
+    function setFaction(address _faction, bool _isFaction) external onlyOwner {
+        if (_faction == address(0)) revert Miner__InvalidFaction();
+        account_IsFaction[_faction] = _isFaction;
+        emit Miner__FactionWhitelisted(_faction, _isFaction);
     }
 
     function setCapacity(uint256 _capacity) external onlyOwner {
