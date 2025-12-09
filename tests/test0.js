@@ -27,7 +27,7 @@ let owner,
   faction0,
   faction1,
   entropyProvider;
-let weth, unit, miner, multicall, entropy;
+let weth, unit, rig, multicall, entropy;
 let auction0, auction1;
 
 describe("local: test0", function () {
@@ -56,18 +56,17 @@ describe("local: test0", function () {
     entropy = await entropyArtifact.deploy(entropyProvider.address);
     console.log("- Entropy Initialized");
 
-    const minerArtifact = await ethers.getContractFactory("Miner");
-    miner = await minerArtifact.deploy(
+    const rigArtifact = await ethers.getContractFactory("Rig");
+    rig = await rigArtifact.deploy(
       weth.address,
       entropy.address,
-      treasury.address,
-      team.address
+      treasury.address
     );
-    console.log("- Miner Initialized");
+    console.log("- Rig Initialized");
 
     unit = await ethers.getContractAt(
-      "contracts/Miner.sol:Unit",
-      await miner.unit()
+      "contracts/Rig.sol:Unit",
+      await rig.unit()
     );
     console.log("- Unit Initialized");
 
@@ -92,18 +91,18 @@ describe("local: test0", function () {
     console.log("- Auction1 Initialized");
 
     const multicallArtifact = await ethers.getContractFactory("Multicall");
-    multicall = await multicallArtifact.deploy(miner.address);
+    multicall = await multicallArtifact.deploy(rig.address);
     console.log("- Multicall Initialized");
 
-    await miner.transferOwnership(multisig.address);
+    await rig.transferOwnership(multisig.address);
     await multicall.transferOwnership(multisig.address);
     console.log("- ownership transferred to multisig");
 
-    await miner.connect(multisig).setTreasury(auction0.address);
+    await rig.connect(multisig).setTreasury(auction0.address);
     console.log("- treasury set to auction0");
 
-    await miner.connect(multisig).setFaction(faction0.address, true);
-    await miner.connect(multisig).setFaction(faction1.address, true);
+    await rig.connect(multisig).setFaction(faction0.address, true);
+    await rig.connect(multisig).setFaction(faction1.address, true);
     console.log("- factions whitelisted");
 
     await multicall.connect(multisig).setAuction(auction0.address);
@@ -113,9 +112,9 @@ describe("local: test0", function () {
     console.log();
   });
 
-  it("Miner State", async function () {
+  it("Rig State", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -132,7 +131,7 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Miner: ", res.miner);
+    console.log("Rig: ", res.rig);
     console.log("URI: ", res.uri);
   });
 
@@ -145,13 +144,13 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Miner: ", res.miner);
+    console.log("Rig: ", res.rig);
     console.log("URI: ", res.uri);
   });
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -190,20 +189,20 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Miner: ", res.miner);
+    console.log("Rig: ", res.rig);
     console.log("URI: ", res.uri);
   });
 
   it("Increase capacity to 10", async function () {
     console.log("******************************************************");
-    await miner.connect(multisig).setCapacity(10);
+    await rig.connect(multisig).setCapacity(10);
     console.log("- capacity set to 10");
   });
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 5-30 minutes
       const timeSkip = Math.floor(Math.random() * 1500) + 300;
@@ -231,7 +230,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -243,14 +242,14 @@ describe("local: test0", function () {
 
   it("Increase capacity to 20", async function () {
     console.log("******************************************************");
-    await miner.connect(multisig).setCapacity(20);
+    await rig.connect(multisig).setCapacity(20);
     console.log("- capacity set to 20");
   });
 
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 25;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 10-45 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 600;
@@ -278,7 +277,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -290,14 +289,14 @@ describe("local: test0", function () {
 
   it("Increase capacity to 32", async function () {
     console.log("******************************************************");
-    await miner.connect(multisig).setCapacity(32);
+    await rig.connect(multisig).setCapacity(32);
     console.log("- capacity set to 32");
   });
 
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 30;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 15-50 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 900;
@@ -325,7 +324,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -337,14 +336,14 @@ describe("local: test0", function () {
 
   it("Increase capacity to 42", async function () {
     console.log("******************************************************");
-    await miner.connect(multisig).setCapacity(42);
+    await rig.connect(multisig).setCapacity(42);
     console.log("- capacity set to 42");
   });
 
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 30;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 20-55 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1200;
@@ -372,7 +371,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -382,9 +381,9 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
-  it("Miner State, user0", async function () {
+  it("Rig State, user0", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -392,9 +391,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user1", async function () {
+  it("Rig State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user1.address);
+    let res = await multicall.getRig(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -402,9 +401,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user2", async function () {
+  it("Rig State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user2.address);
+    let res = await multicall.getRig(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -412,9 +411,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user3", async function () {
+  it("Rig State, user3", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user3.address);
+    let res = await multicall.getRig(user3.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -431,7 +430,7 @@ describe("local: test0", function () {
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 30;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 15-50 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 900;
@@ -459,7 +458,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -469,9 +468,9 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
-  it("Miner State, user0", async function () {
+  it("Rig State, user0", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -482,7 +481,7 @@ describe("local: test0", function () {
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 30;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 20-55 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1200;
@@ -510,7 +509,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -520,9 +519,9 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
-  it("Miner State, user1", async function () {
+  it("Rig State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user1.address);
+    let res = await multicall.getRig(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -530,9 +529,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user0", async function () {
+  it("Rig State, user0", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -543,7 +542,7 @@ describe("local: test0", function () {
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 25;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 25-60 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1500;
@@ -571,7 +570,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -581,9 +580,9 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
-  it("Miner State, user2", async function () {
+  it("Rig State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user2.address);
+    let res = await multicall.getRig(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -600,7 +599,7 @@ describe("local: test0", function () {
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 30-65 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1800;
@@ -629,7 +628,7 @@ describe("local: test0", function () {
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 25-60 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1500;
@@ -658,7 +657,7 @@ describe("local: test0", function () {
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 20-55 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1200;
@@ -687,7 +686,7 @@ describe("local: test0", function () {
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 15-50 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 900;
@@ -715,7 +714,7 @@ describe("local: test0", function () {
 
   it("Print URIs", async function () {
     console.log("******************************************************");
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     const slots = await multicall.getSlots(0, capacity - 1);
     const uris = [];
     for (let i = 0; i < capacity; i++) {
@@ -725,9 +724,9 @@ describe("local: test0", function () {
     console.log(uris.join(" "));
   });
 
-  it("Miner State, user0", async function () {
+  it("Rig State, user0", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -735,9 +734,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user1", async function () {
+  it("Rig State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user1.address);
+    let res = await multicall.getRig(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -745,9 +744,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user2", async function () {
+  it("Rig State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user2.address);
+    let res = await multicall.getRig(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -755,9 +754,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user3", async function () {
+  it("Rig State, user3", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user3.address);
+    let res = await multicall.getRig(user3.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -786,14 +785,14 @@ describe("local: test0", function () {
       convert("5.0", 18),
       convert("10.0", 18),
     ];
-    await miner.connect(multisig).setMultipliers(multipliers);
+    await rig.connect(multisig).setMultipliers(multipliers);
     console.log("- multipliers set to ", await multicall.getMultipliers());
   });
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 20-55 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1200;
@@ -822,7 +821,7 @@ describe("local: test0", function () {
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 25-60 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1500;
@@ -851,7 +850,7 @@ describe("local: test0", function () {
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 30-65 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1800;
@@ -880,7 +879,7 @@ describe("local: test0", function () {
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 15-50 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 900;
@@ -906,9 +905,9 @@ describe("local: test0", function () {
     }
   });
 
-  it("Miner State, user0", async function () {
+  it("Rig State, user0", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user0.address);
+    let res = await multicall.getRig(user0.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -916,9 +915,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user1", async function () {
+  it("Rig State, user1", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user1.address);
+    let res = await multicall.getRig(user1.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -926,9 +925,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user2", async function () {
+  it("Rig State, user2", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user2.address);
+    let res = await multicall.getRig(user2.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -936,9 +935,9 @@ describe("local: test0", function () {
     console.log("WETH Balance: ", divDec(res.wethBalance));
   });
 
-  it("Miner State, user3", async function () {
+  it("Rig State, user3", async function () {
     console.log("******************************************************");
-    let res = await multicall.getMiner(user3.address);
+    let res = await multicall.getRig(user3.address);
     console.log("UPS: ", divDec(res.ups));
     console.log("Unit Price: ", divDec(res.unitPrice));
     console.log("Unit Balance: ", divDec(res.unitBalance));
@@ -957,14 +956,14 @@ describe("local: test0", function () {
       ...Array(5).fill(convert("5.0", 18)),
       ...Array(1).fill(convert("10.0", 18)),
     ];
-    await miner.connect(multisig).setMultipliers(multipliers);
+    await rig.connect(multisig).setMultipliers(multipliers);
     console.log("- multipliers set to ", await multicall.getMultipliers());
   });
 
   it("User0 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 25-60 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1500;
@@ -999,7 +998,7 @@ describe("local: test0", function () {
   it("User1 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 30-65 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1800;
@@ -1034,7 +1033,7 @@ describe("local: test0", function () {
   it("User2 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 20-55 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 1200;
@@ -1069,7 +1068,7 @@ describe("local: test0", function () {
   it("User3 mines randomly", async function () {
     console.log("******************************************************");
     const iterations = 20;
-    const capacity = (await miner.capacity()).toNumber();
+    const capacity = (await rig.capacity()).toNumber();
     for (let i = 0; i < iterations; i++) {
       // Random time skip between 15-50 minutes
       const timeSkip = Math.floor(Math.random() * 2100) + 900;

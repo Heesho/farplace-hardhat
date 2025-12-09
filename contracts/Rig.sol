@@ -12,19 +12,19 @@ import {IEntropyV2} from "@pythnetwork/entropy-sdk-solidity/IEntropyV2.sol";
 import {IEntropyConsumer} from "@pythnetwork/entropy-sdk-solidity/IEntropyConsumer.sol";
 
 contract Unit is ERC20, ERC20Permit, ERC20Votes {
-    address public immutable miner;
+    address public immutable rig;
 
-    error Unit__NotMiner();
+    error Unit__NotRig();
 
     event Unit__Minted(address account, uint256 amount);
     event Unit__Burned(address account, uint256 amount);
 
     constructor() ERC20("CoreTest", "CORETEST") ERC20Permit("CoreTest") {
-        miner = msg.sender;
+        rig = msg.sender;
     }
 
     function mint(address account, uint256 amount) external {
-        if (msg.sender != miner) revert Unit__NotMiner();
+        if (msg.sender != rig) revert Unit__NotRig();
         _mint(account, amount);
         emit Unit__Minted(account, amount);
     }
@@ -47,7 +47,7 @@ contract Unit is ERC20, ERC20Permit, ERC20Votes {
     }
 }
 
-contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
+contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     uint256 public constant TOTAL_FEE = 2_000;
@@ -65,9 +65,9 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     uint256 public constant HALVING_PERIOD = 30 days;
     uint256 public constant TAIL_UPS = 0.01 ether;
 
-    uint256 public constant MAX_CAPACITY = 1024;
     uint256 public constant DEFAULT_MULTIPLIER = 1e18;
     uint256 public constant MULTIPLIER_DURATION = 24 hours;
+    uint256 public constant MAX_CAPACITY = 1_000_000;
 
     address public immutable unit;
     address public immutable quote;
@@ -92,56 +92,55 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 ups;
         uint256 multiplier;
         uint256 lastMultiplierTime;
-        address miner;
+        address rig;
         string uri;
     }
 
-    error Miner__InvalidMiner();
-    error Miner__InvalidIndex();
-    error Miner__EpochIdMismatch();
-    error Miner__MaxPriceExceeded();
-    error Miner__Expired();
-    error Miner__InsufficientFee();
-    error Miner__InvalidTreasury();
-    error Miner__InvalidFaction();
-    error Miner__CapacityBelowCurrent();
-    error Miner__CapacityExceedsMax();
-    error Miner__InvalidMultiplier();
-    error Miner__InvalidLength();
+    error Rig__InvalidRig();
+    error Rig__InvalidIndex();
+    error Rig__EpochIdMismatch();
+    error Rig__MaxPriceExceeded();
+    error Rig__Expired();
+    error Rig__InsufficientFee();
+    error Rig__InvalidTreasury();
+    error Rig__InvalidFaction();
+    error Rig__CapacityBelowCurrent();
+    error Rig__CapacityExceedsMax();
+    error Rig__InvalidMultiplier();
+    error Rig__InvalidLength();
 
-    event Miner__Mine(
+    event Rig__Mine(
         address sender,
-        address indexed miner,
+        address indexed rig,
         address indexed faction,
         uint256 indexed index,
         uint256 epochId,
         uint256 price,
         string uri
     );
-    event Miner__MultiplierSet(uint256 indexed index, uint256 indexed epochId, uint256 multiplier);
-    event Miner__EntropyRequested(uint256 indexed index, uint256 indexed epochId, uint64 indexed sequenceNumber);
-    event Miner__FactionFee(address indexed faction, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Miner__TreasuryFee(address indexed treasury, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Miner__TeamFee(address indexed team, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Miner__MinerFee(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Miner__Mint(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Miner__TreasurySet(address indexed treasury);
-    event Miner__TeamSet(address indexed team);
-    event Miner__FactionWhitelisted(address indexed faction, bool whitelisted);
-    event Miner__CapacitySet(uint256 capacity);
-    event Miner__MultipliersSet(uint256[] multipliers);
+    event Rig__MultiplierSet(uint256 indexed index, uint256 indexed epochId, uint256 multiplier);
+    event Rig__EntropyRequested(uint256 indexed index, uint256 indexed epochId, uint64 indexed sequenceNumber);
+    event Rig__FactionFee(address indexed faction, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__TreasuryFee(address indexed treasury, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__TeamFee(address indexed team, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__RigFee(address indexed rig, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__Mint(address indexed rig, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__TreasurySet(address indexed treasury);
+    event Rig__TeamSet(address indexed team);
+    event Rig__FactionSet(address indexed faction, bool isFaction);
+    event Rig__CapacitySet(uint256 capacity);
+    event Rig__MultipliersSet(uint256[] multipliers);
 
-    constructor(address _quote, address _entropy, address _treasury, address _team) {
+    constructor(address _quote, address _entropy, address _treasury) {
         quote = _quote;
         treasury = _treasury;
-        team = _team;
         startTime = block.timestamp;
         unit = address(new Unit());
         entropy = IEntropyV2(_entropy);
     }
 
     function mine(
-        address miner,
+        address rig,
         address faction,
         uint256 index,
         uint256 epochId,
@@ -149,39 +148,39 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 maxPrice,
         string memory uri
     ) external payable nonReentrant returns (uint256 price) {
-        if (miner == address(0)) revert Miner__InvalidMiner();
-        if (block.timestamp > deadline) revert Miner__Expired();
-        if (index >= capacity) revert Miner__InvalidIndex();
-        if (faction != address(0) && !account_IsFaction[faction]) revert Miner__InvalidFaction();
+        if (rig == address(0)) revert Rig__InvalidRig();
+        if (block.timestamp > deadline) revert Rig__Expired();
+        if (index >= capacity) revert Rig__InvalidIndex();
+        if (faction != address(0) && !account_IsFaction[faction]) revert Rig__InvalidFaction();
 
         Slot memory slotCache = index_Slot[index];
 
-        if (epochId != slotCache.epochId) revert Miner__EpochIdMismatch();
+        if (epochId != slotCache.epochId) revert Rig__EpochIdMismatch();
 
         price = _getPriceFromCache(slotCache);
-        if (price > maxPrice) revert Miner__MaxPriceExceeded();
+        if (price > maxPrice) revert Rig__MaxPriceExceeded();
 
         if (price > 0) {
             uint256 teamFee = team != address(0) ? price * TEAM_FEE / DIVISOR : 0;
             uint256 factionFee = faction != address(0) ? price * FACTION_FEE / DIVISOR : 0;
             uint256 treasuryFee = price * TOTAL_FEE / DIVISOR - teamFee - factionFee;
-            uint256 minerFee = price - treasuryFee - teamFee - factionFee;
+            uint256 rigFee = price - treasuryFee - teamFee - factionFee;
 
             IERC20(quote).safeTransferFrom(msg.sender, treasury, treasuryFee);
-            emit Miner__TreasuryFee(treasury, index, epochId, treasuryFee);
+            emit Rig__TreasuryFee(treasury, index, epochId, treasuryFee);
 
             if (teamFee > 0) {
                 IERC20(quote).safeTransferFrom(msg.sender, team, teamFee);
-                emit Miner__TeamFee(team, index, epochId, teamFee);
+                emit Rig__TeamFee(team, index, epochId, teamFee);
             }
 
             if (factionFee > 0) {
                 IERC20(quote).safeTransferFrom(msg.sender, faction, factionFee);
-                emit Miner__FactionFee(faction, index, epochId, factionFee);
+                emit Rig__FactionFee(faction, index, epochId, factionFee);
             }
 
-            IERC20(quote).safeTransferFrom(msg.sender, slotCache.miner, minerFee);
-            emit Miner__MinerFee(slotCache.miner, index, epochId, minerFee);
+            IERC20(quote).safeTransferFrom(msg.sender, slotCache.rig, rigFee);
+            emit Rig__RigFee(slotCache.rig, index, epochId, rigFee);
         }
 
         uint256 newInitPrice = price * PRICE_MULTIPLIER / PRECISION;
@@ -195,9 +194,9 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 mineTime = block.timestamp - slotCache.startTime;
         uint256 minedAmount = mineTime * slotCache.ups * slotCache.multiplier / PRECISION;
 
-        if (slotCache.miner != address(0)) {
-            Unit(unit).mint(slotCache.miner, minedAmount);
-            emit Miner__Mint(slotCache.miner, index, epochId, minedAmount);
+        if (slotCache.rig != address(0)) {
+            Unit(unit).mint(slotCache.rig, minedAmount);
+            emit Rig__Mint(slotCache.rig, index, epochId, minedAmount);
         }
 
         unchecked {
@@ -205,7 +204,7 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         }
         slotCache.initPrice = newInitPrice;
         slotCache.startTime = block.timestamp;
-        slotCache.miner = miner;
+        slotCache.rig = rig;
         slotCache.ups = _getUpsFromTime(block.timestamp) / capacity;
         slotCache.uri = uri;
 
@@ -216,15 +215,15 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
 
         index_Slot[index] = slotCache;
 
-        emit Miner__Mine(msg.sender, miner, faction, index, epochId, price, uri);
+        emit Rig__Mine(msg.sender, rig, faction, index, epochId, price, uri);
 
         if (shouldUpdateMultiplier) {
             uint128 fee = entropy.getFeeV2();
-            if (msg.value < fee) revert Miner__InsufficientFee();
+            if (msg.value < fee) revert Rig__InsufficientFee();
             uint64 seq = entropy.requestV2{value: fee}();
             sequence_Index[seq] = index;
             sequence_Epoch[seq] = slotCache.epochId;
-            emit Miner__EntropyRequested(index, slotCache.epochId, seq);
+            emit Rig__EntropyRequested(index, slotCache.epochId, seq);
         }
 
         return price;
@@ -238,14 +237,14 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
         delete sequence_Epoch[sequenceNumber];
 
         Slot memory slotCache = index_Slot[index];
-        if (slotCache.epochId != epoch || slotCache.miner == address(0)) return;
+        if (slotCache.epochId != epoch || slotCache.rig == address(0)) return;
 
         uint256 multiplier = _drawMultiplier(randomNumber);
         slotCache.multiplier = multiplier;
         slotCache.lastMultiplierTime = block.timestamp;
 
         index_Slot[index] = slotCache;
-        emit Miner__MultiplierSet(index, epoch, multiplier);
+        emit Rig__MultiplierSet(index, epoch, multiplier);
     }
 
     function _drawMultiplier(bytes32 randomNumber) internal view returns (uint256) {
@@ -273,41 +272,41 @@ contract Miner is IEntropyConsumer, ReentrancyGuard, Ownable {
     }
 
     function setTreasury(address _treasury) external onlyOwner {
-        if (_treasury == address(0)) revert Miner__InvalidTreasury();
+        if (_treasury == address(0)) revert Rig__InvalidTreasury();
         treasury = _treasury;
-        emit Miner__TreasurySet(_treasury);
+        emit Rig__TreasurySet(_treasury);
     }
 
     function setTeam(address _team) external onlyOwner {
         team = _team;
-        emit Miner__TeamSet(_team);
+        emit Rig__TeamSet(_team);
     }
 
     function setFaction(address _faction, bool _isFaction) external onlyOwner {
-        if (_faction == address(0)) revert Miner__InvalidFaction();
+        if (_faction == address(0)) revert Rig__InvalidFaction();
         account_IsFaction[_faction] = _isFaction;
-        emit Miner__FactionWhitelisted(_faction, _isFaction);
+        emit Rig__FactionSet(_faction, _isFaction);
     }
 
     function setCapacity(uint256 _capacity) external onlyOwner {
-        if (_capacity <= capacity) revert Miner__CapacityBelowCurrent();
-        if (_capacity > MAX_CAPACITY) revert Miner__CapacityExceedsMax();
+        if (_capacity <= capacity) revert Rig__CapacityBelowCurrent();
+        if (_capacity > MAX_CAPACITY) revert Rig__CapacityExceedsMax();
         capacity = _capacity;
-        emit Miner__CapacitySet(_capacity);
+        emit Rig__CapacitySet(_capacity);
     }
 
     function setMultipliers(uint256[] calldata _multipliers) external onlyOwner {
         uint256 length = _multipliers.length;
-        if (length == 0) revert Miner__InvalidLength();
+        if (length == 0) revert Rig__InvalidLength();
 
         uint256 minMultiplier = DEFAULT_MULTIPLIER;
         for (uint256 i = 0; i < length; i++) {
-            if (_multipliers[i] < minMultiplier) revert Miner__InvalidMultiplier();
+            if (_multipliers[i] < minMultiplier) revert Rig__InvalidMultiplier();
         }
 
         multipliers = _multipliers;
 
-        emit Miner__MultipliersSet(_multipliers);
+        emit Rig__MultipliersSet(_multipliers);
     }
 
     function getEntropy() internal view override returns (address) {

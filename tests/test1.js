@@ -6,7 +6,7 @@ const { ethers, network } = require("hardhat");
 const AddressZero = "0x0000000000000000000000000000000000000000";
 
 let owner, multisig, treasury, team, user0, user1, faction0, faction1, entropyProvider;
-let weth, unit, miner, entropy;
+let weth, unit, rig, entropy;
 
 describe("local: test1 - Fee Distribution Tests", function () {
   before("Initial set up", async function () {
@@ -23,30 +23,30 @@ describe("local: test1 - Fee Distribution Tests", function () {
     entropy = await entropyArtifact.deploy(entropyProvider.address);
     console.log("- Entropy Initialized");
 
-    const minerArtifact = await ethers.getContractFactory("Miner");
-    miner = await minerArtifact.deploy(
+    const rigArtifact = await ethers.getContractFactory("Rig");
+    rig = await rigArtifact.deploy(
       weth.address,
       entropy.address,
-      treasury.address,
-      team.address
+      treasury.address
     );
-    console.log("- Miner Initialized");
+    await rig.setTeam(team.address);
+    console.log("- Rig Initialized");
 
-    unit = await ethers.getContractAt("contracts/Miner.sol:Unit", await miner.unit());
+    unit = await ethers.getContractAt("contracts/Rig.sol:Unit", await rig.unit());
     console.log("- Unit Initialized");
 
-    await miner.transferOwnership(multisig.address);
+    await rig.transferOwnership(multisig.address);
     console.log("- Ownership transferred to multisig");
 
-    await miner.connect(multisig).setFaction(faction0.address, true);
-    await miner.connect(multisig).setFaction(faction1.address, true);
+    await rig.connect(multisig).setFaction(faction0.address, true);
+    await rig.connect(multisig).setFaction(faction1.address, true);
     console.log("- Factions whitelisted");
 
     // Give users some WETH
     await weth.connect(user0).deposit({ value: convert("100", 18) });
     await weth.connect(user1).deposit({ value: convert("100", 18) });
-    await weth.connect(user0).approve(miner.address, convert("100", 18));
-    await weth.connect(user1).approve(miner.address, convert("100", 18));
+    await weth.connect(user0).approve(rig.address, convert("100", 18));
+    await weth.connect(user1).approve(rig.address, convert("100", 18));
     console.log("- Users funded with WETH");
 
     console.log("Initialization Complete\n");
@@ -54,10 +54,10 @@ describe("local: test1 - Fee Distribution Tests", function () {
 
   it("Should verify fee constants", async function () {
     console.log("******************************************************");
-    const totalFee = await miner.TOTAL_FEE();
-    const teamFee = await miner.TEAM_FEE();
-    const factionFee = await miner.FACTION_FEE();
-    const divisor = await miner.DIVISOR();
+    const totalFee = await rig.TOTAL_FEE();
+    const teamFee = await rig.TEAM_FEE();
+    const factionFee = await rig.FACTION_FEE();
+    const divisor = await rig.DIVISOR();
 
     expect(totalFee).to.equal(2000); // 20%
     expect(teamFee).to.equal(200); // 2%
@@ -71,11 +71,11 @@ describe("local: test1 - Fee Distribution Tests", function () {
 
   it("User0 mines slot 0 to set initial price", async function () {
     console.log("******************************************************");
-    const slot = await miner.getSlot(0);
+    const slot = await rig.getSlot(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
-    await miner
+    await rig
       .connect(user0)
       .mine(user0.address, AddressZero, 0, slot.epochId, deadline, 0, "#AABBCC");
 
@@ -94,15 +94,15 @@ describe("local: test1 - Fee Distribution Tests", function () {
     const factionBalBefore = await weth.balanceOf(faction0.address);
     const minerBalBefore = await weth.balanceOf(user0.address);
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     console.log("- Price:", divDec(price), "WETH");
 
     // User1 mines with faction0
-    await miner
+    await rig
       .connect(user1)
       .mine(user1.address, faction0.address, 0, slot.epochId, deadline, price, "#112233");
 
@@ -147,15 +147,15 @@ describe("local: test1 - Fee Distribution Tests", function () {
     const teamBalBefore = await weth.balanceOf(team.address);
     const minerBalBefore = await weth.balanceOf(user1.address);
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     console.log("- Price:", divDec(price), "WETH");
 
     // Mine without faction (AddressZero)
-    await miner
+    await rig
       .connect(user0)
       .mine(user0.address, AddressZero, 0, slot.epochId, deadline, price, "#AABBCC");
 
@@ -187,8 +187,8 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should allow setting team to zero address", async function () {
     console.log("******************************************************");
 
-    await miner.connect(multisig).setTeam(AddressZero);
-    const teamAddr = await miner.team();
+    await rig.connect(multisig).setTeam(AddressZero);
+    const teamAddr = await rig.team();
     expect(teamAddr).to.equal(AddressZero);
 
     console.log("- Team set to zero address");
@@ -203,15 +203,15 @@ describe("local: test1 - Fee Distribution Tests", function () {
     const treasuryBalBefore = await weth.balanceOf(treasury.address);
     const minerBalBefore = await weth.balanceOf(user0.address);
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     console.log("- Price:", divDec(price), "WETH");
 
     // Mine without faction, team is zero
-    await miner
+    await rig
       .connect(user1)
       .mine(user1.address, AddressZero, 0, slot.epochId, deadline, price, "#DDEEFF");
 
@@ -243,15 +243,15 @@ describe("local: test1 - Fee Distribution Tests", function () {
     const factionBalBefore = await weth.balanceOf(faction1.address);
     const minerBalBefore = await weth.balanceOf(user1.address);
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     console.log("- Price:", divDec(price), "WETH");
 
     // Mine with faction1, team is still zero
-    await miner
+    await rig
       .connect(user0)
       .mine(user0.address, faction1.address, 0, slot.epochId, deadline, price, "#123456");
 
@@ -283,8 +283,8 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should restore team address", async function () {
     console.log("******************************************************");
 
-    await miner.connect(multisig).setTeam(team.address);
-    const teamAddr = await miner.team();
+    await rig.connect(multisig).setTeam(team.address);
+    const teamAddr = await rig.team();
     expect(teamAddr).to.equal(team.address);
 
     console.log("- Team restored to:", team.address);
@@ -296,14 +296,14 @@ describe("local: test1 - Fee Distribution Tests", function () {
     await ethers.provider.send("evm_increaseTime", [1800]);
     await ethers.provider.send("evm_mine", []);
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     // Try to use a non-whitelisted address as faction
     await expect(
-      miner
+      rig
         .connect(user1)
         .mine(user1.address, user0.address, 0, slot.epochId, deadline, price, "#ABCDEF")
     ).to.be.reverted;
@@ -314,20 +314,20 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should allow removing faction from whitelist", async function () {
     console.log("******************************************************");
 
-    await miner.connect(multisig).setFaction(faction0.address, false);
-    const isFaction = await miner.account_IsFaction(faction0.address);
+    await rig.connect(multisig).setFaction(faction0.address, false);
+    const isFaction = await rig.account_IsFaction(faction0.address);
     expect(isFaction).to.equal(false);
 
     console.log("- Faction0 removed from whitelist");
 
     // Now using faction0 should fail
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     await expect(
-      miner
+      rig
         .connect(user0)
         .mine(user0.address, faction0.address, 0, slot.epochId, deadline, price, "#111111")
     ).to.be.reverted;
@@ -335,20 +335,20 @@ describe("local: test1 - Fee Distribution Tests", function () {
     console.log("- Removed faction correctly rejected!");
 
     // Re-add for future tests
-    await miner.connect(multisig).setFaction(faction0.address, true);
+    await rig.connect(multisig).setFaction(faction0.address, true);
     console.log("- Faction0 re-added to whitelist");
   });
 
   it("Should reject expired deadline", async function () {
     console.log("******************************************************");
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const expiredDeadline = latest.timestamp - 1; // Already expired
 
     await expect(
-      miner
+      rig
         .connect(user1)
         .mine(user1.address, AddressZero, 0, slot.epochId, expiredDeadline, price, "#222222")
     ).to.be.reverted;
@@ -359,14 +359,14 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should reject wrong epoch ID", async function () {
     console.log("******************************************************");
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
     const wrongEpochId = slot.epochId.add(1);
 
     await expect(
-      miner
+      rig
         .connect(user1)
         .mine(user1.address, AddressZero, 0, wrongEpochId, deadline, price, "#333333")
     ).to.be.reverted;
@@ -381,24 +381,24 @@ describe("local: test1 - Fee Distribution Tests", function () {
     await ethers.provider.send("evm_increaseTime", [1800]);
     await ethers.provider.send("evm_mine", []);
 
-    let slot = await miner.getSlot(0);
-    let price = await miner.getPrice(0);
+    let slot = await rig.getSlot(0);
+    let price = await rig.getPrice(0);
     let latest = await ethers.provider.getBlock("latest");
     let deadline = latest.timestamp + 3600;
 
-    await miner
+    await rig
       .connect(user0)
       .mine(user0.address, AddressZero, 0, slot.epochId, deadline, price, "#444444");
 
     // Now immediately try with a maxPrice of 0 (price should be high right after mining)
-    slot = await miner.getSlot(0);
-    price = await miner.getPrice(0);
+    slot = await rig.getSlot(0);
+    price = await rig.getPrice(0);
     latest = await ethers.provider.getBlock("latest");
     deadline = latest.timestamp + 3600;
 
     // Set maxPrice to 0, actual price should be > 0 right after mining
     await expect(
-      miner
+      rig
         .connect(user1)
         .mine(user1.address, AddressZero, 0, slot.epochId, deadline, 0, "#555555")
     ).to.be.reverted;
@@ -409,13 +409,13 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should reject invalid miner address", async function () {
     console.log("******************************************************");
 
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     await expect(
-      miner
+      rig
         .connect(user1)
         .mine(AddressZero, AddressZero, 0, slot.epochId, deadline, price, "#555555")
     ).to.be.reverted;
@@ -426,12 +426,12 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should reject invalid index", async function () {
     console.log("******************************************************");
 
-    const capacity = await miner.capacity();
+    const capacity = await rig.capacity();
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
     await expect(
-      miner.connect(user1).mine(user1.address, AddressZero, capacity, 0, deadline, 0, "#666666")
+      rig.connect(user1).mine(user1.address, AddressZero, capacity, 0, deadline, 0, "#666666")
     ).to.be.reverted;
 
     console.log("- Invalid index correctly rejected!");
@@ -440,21 +440,21 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should verify capacity management", async function () {
     console.log("******************************************************");
 
-    const currentCapacity = await miner.capacity();
+    const currentCapacity = await rig.capacity();
     console.log("- Current capacity:", currentCapacity.toString());
 
     // Should reject capacity <= current
-    await expect(miner.connect(multisig).setCapacity(currentCapacity)).to.be.reverted;
+    await expect(rig.connect(multisig).setCapacity(currentCapacity)).to.be.reverted;
     console.log("- Capacity <= current correctly rejected");
 
     // Should reject capacity > MAX_CAPACITY
-    const maxCapacity = await miner.MAX_CAPACITY();
-    await expect(miner.connect(multisig).setCapacity(maxCapacity.add(1))).to.be.reverted;
+    const maxCapacity = await rig.MAX_CAPACITY();
+    await expect(rig.connect(multisig).setCapacity(maxCapacity.add(1))).to.be.reverted;
     console.log("- Capacity > MAX_CAPACITY correctly rejected");
 
     // Should allow increasing capacity
-    await miner.connect(multisig).setCapacity(currentCapacity.add(5));
-    const newCapacity = await miner.capacity();
+    await rig.connect(multisig).setCapacity(currentCapacity.add(5));
+    const newCapacity = await rig.capacity();
     expect(newCapacity).to.equal(currentCapacity.add(5));
 
     console.log("- Capacity increased to:", newCapacity.toString());
@@ -464,18 +464,18 @@ describe("local: test1 - Fee Distribution Tests", function () {
     console.log("******************************************************");
 
     // Should reject empty multipliers array
-    await expect(miner.connect(multisig).setMultipliers([])).to.be.reverted;
+    await expect(rig.connect(multisig).setMultipliers([])).to.be.reverted;
     console.log("- Empty multipliers array correctly rejected");
 
     // Should reject multipliers below DEFAULT_MULTIPLIER (1e18)
     const invalidMultipliers = [convert("0.5", 18)];
-    await expect(miner.connect(multisig).setMultipliers(invalidMultipliers)).to.be.reverted;
+    await expect(rig.connect(multisig).setMultipliers(invalidMultipliers)).to.be.reverted;
     console.log("- Multipliers below 1x correctly rejected");
 
     // Should allow valid multipliers
     const validMultipliers = [convert("1.0", 18), convert("2.0", 18), convert("5.0", 18)];
-    await miner.connect(multisig).setMultipliers(validMultipliers);
-    const multipliers = await miner.getMultipliers();
+    await rig.connect(multisig).setMultipliers(validMultipliers);
+    const multipliers = await rig.getMultipliers();
     expect(multipliers.length).to.equal(3);
 
     console.log("- Valid multipliers set:", multipliers.length, "values");
@@ -484,7 +484,7 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should verify treasury cannot be set to zero", async function () {
     console.log("******************************************************");
 
-    await expect(miner.connect(multisig).setTreasury(AddressZero)).to.be.reverted;
+    await expect(rig.connect(multisig).setTreasury(AddressZero)).to.be.reverted;
 
     console.log("- Treasury zero address correctly rejected");
   });
@@ -492,7 +492,7 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should verify faction zero address cannot be whitelisted", async function () {
     console.log("******************************************************");
 
-    await expect(miner.connect(multisig).setFaction(AddressZero, true)).to.be.reverted;
+    await expect(rig.connect(multisig).setFaction(AddressZero, true)).to.be.reverted;
 
     console.log("- Faction zero address correctly rejected");
   });
@@ -500,27 +500,27 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should verify only owner can call admin functions", async function () {
     console.log("******************************************************");
 
-    await expect(miner.connect(user0).setTreasury(user0.address)).to.be.revertedWith(
+    await expect(rig.connect(user0).setTreasury(user0.address)).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
     console.log("- setTreasury: non-owner rejected");
 
-    await expect(miner.connect(user0).setTeam(user0.address)).to.be.revertedWith(
+    await expect(rig.connect(user0).setTeam(user0.address)).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
     console.log("- setTeam: non-owner rejected");
 
-    await expect(miner.connect(user0).setFaction(user0.address, true)).to.be.revertedWith(
+    await expect(rig.connect(user0).setFaction(user0.address, true)).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
     console.log("- setFaction: non-owner rejected");
 
-    await expect(miner.connect(user0).setCapacity(100)).to.be.revertedWith(
+    await expect(rig.connect(user0).setCapacity(100)).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
     console.log("- setCapacity: non-owner rejected");
 
-    await expect(miner.connect(user0).setMultipliers([convert("1.0", 18)])).to.be.revertedWith(
+    await expect(rig.connect(user0).setMultipliers([convert("1.0", 18)])).to.be.revertedWith(
       "Ownable: caller is not the owner"
     );
     console.log("- setMultipliers: non-owner rejected");
@@ -529,7 +529,7 @@ describe("local: test1 - Fee Distribution Tests", function () {
   it("Should mine multiple slots after capacity increase", async function () {
     console.log("******************************************************");
 
-    const capacity = await miner.capacity();
+    const capacity = await rig.capacity();
     console.log("- Current capacity:", capacity.toString());
 
     // Mine a few different slots
@@ -537,13 +537,13 @@ describe("local: test1 - Fee Distribution Tests", function () {
       await ethers.provider.send("evm_increaseTime", [600]); // 10 min
       await ethers.provider.send("evm_mine", []);
 
-      const slot = await miner.getSlot(i);
-      const price = await miner.getPrice(i);
+      const slot = await rig.getSlot(i);
+      const price = await rig.getPrice(i);
       const latest = await ethers.provider.getBlock("latest");
       const deadline = latest.timestamp + 3600;
 
       const uri = "#" + (i * 111111).toString(16).padStart(6, "0");
-      await miner.connect(user0).mine(user0.address, AddressZero, i, slot.epochId, deadline, price, uri);
+      await rig.connect(user0).mine(user0.address, AddressZero, i, slot.epochId, deadline, price, uri);
 
       console.log(`- Mined slot ${i} at price ${divDec(price)} WETH`);
     }
@@ -560,12 +560,12 @@ describe("local: test1 - Fee Distribution Tests", function () {
     await ethers.provider.send("evm_mine", []);
 
     // Mine to trigger minting
-    const slot = await miner.getSlot(0);
-    const price = await miner.getPrice(0);
+    const slot = await rig.getSlot(0);
+    const price = await rig.getPrice(0);
     const latest = await ethers.provider.getBlock("latest");
     const deadline = latest.timestamp + 3600;
 
-    await miner
+    await rig
       .connect(user1)
       .mine(user1.address, AddressZero, 0, slot.epochId, deadline, price, "#FFFFFF");
 
@@ -581,16 +581,16 @@ describe("local: test1 - Fee Distribution Tests", function () {
     console.log("******************************************************");
 
     // Get current price
-    const priceBefore = await miner.getPrice(0);
+    const priceBefore = await rig.getPrice(0);
     console.log("- Price before:", divDec(priceBefore), "WETH");
 
     // Wait for half an epoch
-    const epochPeriod = await miner.EPOCH_PERIOD();
+    const epochPeriod = await rig.EPOCH_PERIOD();
     await ethers.provider.send("evm_increaseTime", [epochPeriod.div(2).toNumber()]);
     await ethers.provider.send("evm_mine", []);
 
     // Price should have decayed
-    const priceAfter = await miner.getPrice(0);
+    const priceAfter = await rig.getPrice(0);
     console.log("- Price after 30 min:", divDec(priceAfter), "WETH");
 
     expect(priceAfter).to.be.lt(priceBefore);
@@ -601,34 +601,34 @@ describe("local: test1 - Fee Distribution Tests", function () {
     console.log("******************************************************");
 
     // First mine to get a fresh price that we know
-    let slot = await miner.getSlot(0);
-    let price = await miner.getPrice(0);
+    let slot = await rig.getSlot(0);
+    let price = await rig.getPrice(0);
     let latest = await ethers.provider.getBlock("latest");
     let deadline = latest.timestamp + 3600;
 
-    await miner
+    await rig
       .connect(user1)
       .mine(user1.address, AddressZero, 0, slot.epochId, deadline, price, "#123ABC");
 
     // Now read the price immediately after mining (should be at init price)
-    const priceBefore = await miner.getPrice(0);
+    const priceBefore = await rig.getPrice(0);
     console.log("- Price right after mining:", divDec(priceBefore), "WETH");
 
     // Mine again immediately
-    slot = await miner.getSlot(0);
+    slot = await rig.getSlot(0);
     latest = await ethers.provider.getBlock("latest");
     deadline = latest.timestamp + 3600;
 
-    await miner
+    await rig
       .connect(user0)
       .mine(user0.address, AddressZero, 0, slot.epochId, deadline, priceBefore, "#ABCDEF");
 
     // Get new price immediately after mining
-    const priceAfter = await miner.getPrice(0);
+    const priceAfter = await rig.getPrice(0);
     console.log("- Price after second mining:", divDec(priceAfter), "WETH");
 
     // New init price should be ~2x the old price (PRICE_MULTIPLIER = 2e18)
-    const priceMultiplier = await miner.PRICE_MULTIPLIER();
+    const priceMultiplier = await rig.PRICE_MULTIPLIER();
     const expectedPrice = priceBefore.mul(priceMultiplier).div(convert("1", 18));
 
     // Allow for small time decay since we just mined

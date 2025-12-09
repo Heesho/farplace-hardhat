@@ -9,7 +9,7 @@ interface IWETH {
     function deposit() external payable;
 }
 
-interface IMiner {
+interface IRig {
     struct Slot {
         uint256 epochId;
         uint256 initPrice;
@@ -17,7 +17,7 @@ interface IMiner {
         uint256 ups;
         uint256 multiplier;
         uint256 lastMultiplierTime;
-        address miner;
+        address rig;
         string uri;
     }
 
@@ -36,7 +36,7 @@ interface IMiner {
     function MULTIPLIER_DURATION() external view returns (uint256);
 
     function mine(
-        address miner,
+        address rig,
         address provider,
         uint256 index,
         uint256 epochId,
@@ -69,7 +69,7 @@ interface IAuction {
 contract Multicall is Ownable {
     using SafeERC20 for IERC20;
 
-    address public immutable miner;
+    address public immutable rig;
     address public immutable unit;
     address public immutable quote;
 
@@ -77,7 +77,7 @@ contract Multicall is Ownable {
     address public donut;
     address public refPool;
 
-    struct MinerState {
+    struct RigState {
         uint256 ups;
         uint256 unitPrice;
         uint256 unitBalance;
@@ -94,7 +94,7 @@ contract Multicall is Ownable {
         uint256 multiplier;
         uint256 multiplierTime;
         uint256 mined;
-        address miner;
+        address rig;
         string uri;
     }
 
@@ -110,10 +110,10 @@ contract Multicall is Ownable {
         uint256 paymentTokenBalance;
     }
 
-    constructor(address _miner) {
-        miner = _miner;
-        unit = IMiner(miner).unit();
-        quote = IMiner(miner).quote();
+    constructor(address _rig) {
+        rig = _rig;
+        unit = IRig(rig).unit();
+        quote = IRig(rig).quote();
     }
 
     function mine(
@@ -124,12 +124,12 @@ contract Multicall is Ownable {
         uint256 maxPrice,
         string memory uri
     ) external payable {
-        uint256 entropyFee = IMiner(miner).getEntropyFee();
+        uint256 entropyFee = IRig(rig).getEntropyFee();
         uint256 payment = msg.value - entropyFee;
         IWETH(quote).deposit{value: payment}();
-        IERC20(quote).safeApprove(miner, 0);
-        IERC20(quote).safeApprove(miner, payment);
-        IMiner(miner).mine{value: entropyFee}(msg.sender, provider, index, epochId, deadline, maxPrice, uri);
+        IERC20(quote).safeApprove(rig, 0);
+        IERC20(quote).safeApprove(rig, payment);
+        IRig(rig).mine{value: entropyFee}(msg.sender, provider, index, epochId, deadline, maxPrice, uri);
         uint256 wethBalance = IERC20(quote).balanceOf(address(this));
         IERC20(quote).safeTransfer(msg.sender, wethBalance);
     }
@@ -155,8 +155,8 @@ contract Multicall is Ownable {
         refPool = _refPool;
     }
 
-    function getMiner(address account) external view returns (MinerState memory state) {
-        state.ups = IMiner(miner).getUps();
+    function getRig(address account) external view returns (RigState memory state) {
+        state.ups = IRig(rig).getUps();
         if (auction != address(0)) {
             address pool = IAuction(auction).paymentToken();
             if (refPool != address(0) && donut != address(0)) {
@@ -202,13 +202,13 @@ contract Multicall is Ownable {
     }
 
     function getSlot(uint256 index) public view returns (SlotState memory state) {
-        IMiner.Slot memory slot = IMiner(miner).getSlot(index);
+        IRig.Slot memory slot = IRig(rig).getSlot(index);
         state.epochId = slot.epochId;
         state.initPrice = slot.initPrice;
         state.startTime = slot.startTime;
-        state.price = IMiner(miner).getPrice(index);
+        state.price = IRig(rig).getPrice(index);
         state.multiplier = slot.multiplier;
-        uint256 duration = IMiner(miner).MULTIPLIER_DURATION();
+        uint256 duration = IRig(rig).MULTIPLIER_DURATION();
         if (block.timestamp < slot.lastMultiplierTime + duration) {
             state.multiplierTime = slot.lastMultiplierTime + duration - block.timestamp;
         } else {
@@ -216,7 +216,7 @@ contract Multicall is Ownable {
         }
         state.ups = slot.ups * state.multiplier / 1e18;
         state.mined = state.ups * (block.timestamp - state.startTime);
-        state.miner = slot.miner;
+        state.rig = slot.rig;
         state.uri = slot.uri;
         return state;
     }
@@ -230,10 +230,10 @@ contract Multicall is Ownable {
     }
 
     function getEntropyFee() external view returns (uint256) {
-        return IMiner(miner).getEntropyFee();
+        return IRig(rig).getEntropyFee();
     }
 
     function getMultipliers() external view returns (uint256[] memory) {
-        return IMiner(miner).getMultipliers();
+        return IRig(rig).getMultipliers();
     }
 }
