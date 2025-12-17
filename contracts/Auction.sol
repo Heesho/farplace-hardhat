@@ -1,45 +1,52 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract Auction {
+/**
+ * @title Auction
+ * @author heesho
+ * @notice A Dutch auction contract for selling accumulated assets in exchange for LP tokens.
+ *         The price decays linearly from initPrice to 0 over each epoch. When purchased,
+ *         all accumulated assets are transferred to the buyer, LP tokens are burned,
+ *         and a new auction begins with a price based on the previous sale.
+ * @dev Forked and modified from Euler Fee Flow.
+ */
+contract Auction is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /*----------  CONSTANTS  --------------------------------------------*/
 
     uint256 public constant MIN_EPOCH_PERIOD = 1 hours;
     uint256 public constant MAX_EPOCH_PERIOD = 365 days;
-    uint256 public constant MIN_PRICE_MULTIPLIER = 1.1e18; // Should at least be 110% of settlement price
-    uint256 public constant MAX_PRICE_MULTIPLIER = 3e18; // Should not exceed 300% of settlement price
-    uint256 public constant ABS_MIN_INIT_PRICE = 1e6; // Minimum sane value for init price
-    uint256 public constant ABS_MAX_INIT_PRICE = type(uint192).max; // chosen so that initPrice * priceMultiplier does not exceed uint256
+    uint256 public constant MIN_PRICE_MULTIPLIER = 1.1e18; // 1.1x minimum
+    uint256 public constant MAX_PRICE_MULTIPLIER = 3e18; // 3x maximum
+    uint256 public constant ABS_MIN_INIT_PRICE = 1e6;
+    uint256 public constant ABS_MAX_INIT_PRICE = type(uint256).max;
     uint256 public constant PRICE_MULTIPLIER_SCALE = 1e18;
 
-    /*----------  STATE VARIABLES  --------------------------------------*/
+    /*----------  IMMUTABLES  -------------------------------------------*/
 
-    address public immutable paymentToken;
-    address public immutable paymentReceiver;
-    uint256 public immutable epochPeriod;
-    uint256 public immutable priceMultiplier;
-    uint256 public immutable minInitPrice;
+    address public immutable paymentToken; // LP token used for payment
+    address public immutable paymentReceiver; // receives payment (burn address)
+    uint256 public immutable epochPeriod; // duration of each Dutch auction
+    uint256 public immutable priceMultiplier; // multiplier for next epoch's starting price
+    uint256 public immutable minInitPrice; // minimum starting price per epoch
 
-    struct Slot0 {
-        uint8 locked; // 1 if unlocked, 2 if locked
-        uint16 epochId; // intentionally overflowable
-        uint192 initPrice;
-        uint40 startTime;
-    }
+    /*----------  STATE  ------------------------------------------------*/
 
-    Slot0 internal slot0;
+    uint256 public epochId; // current epoch counter
+    uint256 public initPrice; // starting price for current epoch
+    uint256 public startTime; // timestamp when current epoch began
 
-    /*----------  ERRORS ------------------------------------------------*/
+    /*----------  ERRORS  -----------------------------------------------*/
 
     error Auction__DeadlinePassed();
     error Auction__EpochIdMismatch();
     error Auction__MaxPaymentAmountExceeded();
     error Auction__EmptyAssets();
-    error Auction__Reentrancy();
     error Auction__InitPriceBelowMin();
     error Auction__InitPriceExceedsMax();
     error Auction__EpochPeriodBelowMin();
@@ -49,150 +56,114 @@ contract Auction {
     error Auction__MinInitPriceBelowMin();
     error Auction__MinInitPriceExceedsAbsMaxInitPrice();
 
-    /*----------  EVENTS ------------------------------------------------*/
+    /*----------  EVENTS  -----------------------------------------------*/
 
     event Auction__Buy(address indexed buyer, address indexed assetsReceiver, uint256 paymentAmount);
 
-    /*----------  MODIFIERS  --------------------------------------------*/
+    /*----------  CONSTRUCTOR  ------------------------------------------*/
 
-    modifier nonReentrant() {
-        if (slot0.locked == 2) revert Auction__Reentrancy();
-        slot0.locked = 2;
-        _;
-        slot0.locked = 1;
-    }
-
-    modifier nonReentrantView() {
-        if (slot0.locked == 2) revert Auction__Reentrancy();
-        _;
-    }
-
-    /*----------  FUNCTIONS  --------------------------------------------*/
-
-    /// @dev Initializes the Auction contract with the specified parameters.
-    /// @param initPrice The initial price for the first epoch.
-    /// @param paymentToken_ The address of the payment token.
-    /// @param paymentReceiver_ The address of the payment receiver.
-    /// @param epochPeriod_ The duration of each epoch period.
-    /// @param priceMultiplier_ The multiplier for adjusting the price from one epoch to the next.
-    /// @param minInitPrice_ The minimum allowed initial price for an epoch.
-    /// @notice This constructor performs parameter validation and sets the initial values for the contract.
+    /**
+     * @notice Deploy a new Auction contract.
+     * @param _initPrice Starting price for the first epoch
+     * @param _paymentToken LP token address used for payments
+     * @param _paymentReceiver Address to receive payments (typically burn address)
+     * @param _epochPeriod Duration of each auction epoch
+     * @param _priceMultiplier Price multiplier for calculating next epoch's starting price
+     * @param _minInitPrice Minimum allowed starting price
+     */
     constructor(
-        uint256 initPrice,
-        address paymentToken_,
-        address paymentReceiver_,
-        uint256 epochPeriod_,
-        uint256 priceMultiplier_,
-        uint256 minInitPrice_
+        uint256 _initPrice,
+        address _paymentToken,
+        address _paymentReceiver,
+        uint256 _epochPeriod,
+        uint256 _priceMultiplier,
+        uint256 _minInitPrice
     ) {
-        if (initPrice < minInitPrice_) revert Auction__InitPriceBelowMin();
-        if (initPrice > ABS_MAX_INIT_PRICE) revert Auction__InitPriceExceedsMax();
-        if (epochPeriod_ < MIN_EPOCH_PERIOD) revert Auction__EpochPeriodBelowMin();
-        if (epochPeriod_ > MAX_EPOCH_PERIOD) revert Auction__EpochPeriodExceedsMax();
-        if (priceMultiplier_ < MIN_PRICE_MULTIPLIER) revert Auction__PriceMultiplierBelowMin();
-        if (priceMultiplier_ > MAX_PRICE_MULTIPLIER) revert Auction__PriceMultiplierExceedsMax();
-        if (minInitPrice_ < ABS_MIN_INIT_PRICE) revert Auction__MinInitPriceBelowMin();
-        if (minInitPrice_ > ABS_MAX_INIT_PRICE) revert Auction__MinInitPriceExceedsAbsMaxInitPrice();
+        if (_initPrice < _minInitPrice) revert Auction__InitPriceBelowMin();
+        if (_initPrice > ABS_MAX_INIT_PRICE) revert Auction__InitPriceExceedsMax();
+        if (_epochPeriod < MIN_EPOCH_PERIOD) revert Auction__EpochPeriodBelowMin();
+        if (_epochPeriod > MAX_EPOCH_PERIOD) revert Auction__EpochPeriodExceedsMax();
+        if (_priceMultiplier < MIN_PRICE_MULTIPLIER) revert Auction__PriceMultiplierBelowMin();
+        if (_priceMultiplier > MAX_PRICE_MULTIPLIER) revert Auction__PriceMultiplierExceedsMax();
+        if (_minInitPrice < ABS_MIN_INIT_PRICE) revert Auction__MinInitPriceBelowMin();
+        if (_minInitPrice > ABS_MAX_INIT_PRICE) revert Auction__MinInitPriceExceedsAbsMaxInitPrice();
 
-        slot0.initPrice = uint192(initPrice);
-        slot0.startTime = uint40(block.timestamp);
+        initPrice = _initPrice;
+        startTime = block.timestamp;
 
-        paymentToken = paymentToken_;
-        paymentReceiver = paymentReceiver_;
-        epochPeriod = epochPeriod_;
-        priceMultiplier = priceMultiplier_;
-        minInitPrice = minInitPrice_;
+        paymentToken = _paymentToken;
+        paymentReceiver = _paymentReceiver;
+        epochPeriod = _epochPeriod;
+        priceMultiplier = _priceMultiplier;
+        minInitPrice = _minInitPrice;
     }
 
-    /// @dev Allows a user to buy assets by transferring payment tokens and receiving the assets.
-    /// @param assets The addresses of the assets to be bought.
-    /// @param assetsReceiver The address that will receive the bought assets.
-    /// @param epochId Id of the epoch to buy from, will revert if not the current epoch
-    /// @param deadline The deadline timestamp for the purchase.
-    /// @param maxPaymentTokenAmount The maximum amount of payment tokens the user is willing to spend.
-    /// @return paymentAmount The amount of payment tokens transferred for the purchase.
-    /// @notice This function performs various checks and transfers the payment tokens to the payment receiver.
-    /// It also transfers the assets to the assets receiver and sets up a new auction with an updated initial price.
+    /*----------  EXTERNAL FUNCTIONS  -----------------------------------*/
+
+    /**
+     * @notice Buy all accumulated assets by paying the current Dutch auction price.
+     * @dev Transfers all balances of specified assets to the receiver.
+     * @param assets Array of token addresses to claim from this contract
+     * @param assetsReceiver Address to receive the claimed assets
+     * @param _epochId Expected epoch ID (reverts if mismatched for frontrun protection)
+     * @param deadline Transaction deadline timestamp
+     * @param maxPaymentTokenAmount Maximum LP tokens willing to pay (slippage protection)
+     * @return paymentAmount Actual amount of LP tokens paid
+     */
     function buy(
         address[] calldata assets,
         address assetsReceiver,
-        uint256 epochId,
+        uint256 _epochId,
         uint256 deadline,
         uint256 maxPaymentTokenAmount
     ) external nonReentrant returns (uint256 paymentAmount) {
         if (block.timestamp > deadline) revert Auction__DeadlinePassed();
         if (assets.length == 0) revert Auction__EmptyAssets();
+        if (_epochId != epochId) revert Auction__EpochIdMismatch();
 
-        Slot0 memory slot0Cache = slot0;
-
-        if (uint16(epochId) != slot0Cache.epochId) revert Auction__EpochIdMismatch();
-
-        paymentAmount = getPriceFromCache(slot0Cache);
-
+        paymentAmount = getPrice();
         if (paymentAmount > maxPaymentTokenAmount) revert Auction__MaxPaymentAmountExceeded();
 
+        // Transfer LP tokens to receiver (burn address)
         if (paymentAmount > 0) {
             IERC20(paymentToken).safeTransferFrom(msg.sender, paymentReceiver, paymentAmount);
         }
 
+        // Transfer all accumulated assets to buyer
         for (uint256 i = 0; i < assets.length; i++) {
             uint256 balance = IERC20(assets[i]).balanceOf(address(this));
             IERC20(assets[i]).safeTransfer(assetsReceiver, balance);
         }
 
-        // Setup new auction
+        // Calculate next epoch's starting price
         uint256 newInitPrice = paymentAmount * priceMultiplier / PRICE_MULTIPLIER_SCALE;
-
         if (newInitPrice > ABS_MAX_INIT_PRICE) {
             newInitPrice = ABS_MAX_INIT_PRICE;
         } else if (newInitPrice < minInitPrice) {
             newInitPrice = minInitPrice;
         }
 
-        // epochID is allowed to overflow, effectively reusing them
+        // Update state for new epoch
         unchecked {
-            slot0Cache.epochId++;
+            epochId++;
         }
-        slot0Cache.initPrice = uint192(newInitPrice);
-        slot0Cache.startTime = uint40(block.timestamp);
-
-        // Write cache in single write
-        slot0 = slot0Cache;
+        initPrice = newInitPrice;
+        startTime = block.timestamp;
 
         emit Auction__Buy(msg.sender, assetsReceiver, paymentAmount);
 
         return paymentAmount;
     }
 
-    /*----------  RESTRICTED FUNCTIONS  ---------------------------------*/
-
-    /// @dev Retrieves the current price from the cache based on the elapsed time since the start of the epoch.
-    /// @param slot0Cache The Slot0 struct containing the initial price and start time of the epoch.
-    /// @return price The current price calculated based on the elapsed time and the initial price.
-    /// @notice This function calculates the current price by subtracting a fraction of the initial price based on the elapsed time.
-    // If the elapsed time exceeds the epoch period, the price will be 0.
-    function getPriceFromCache(Slot0 memory slot0Cache) internal view returns (uint256) {
-        uint256 timePassed = block.timestamp - slot0Cache.startTime;
-
-        if (timePassed > epochPeriod) {
-            return 0;
-        }
-
-        return slot0Cache.initPrice - slot0Cache.initPrice * timePassed / epochPeriod;
-    }
-
     /*----------  VIEW FUNCTIONS  ---------------------------------------*/
 
-    /// @dev Calculates the current price
-    /// @return price The current price calculated based on the elapsed time and the initial price.
-    /// @notice Uses the internal function `getPriceFromCache` to calculate the current price.
-    function getPrice() external view nonReentrantView returns (uint256) {
-        return getPriceFromCache(slot0);
-    }
-
-    /// @dev Retrieves Slot0 as a memory struct
-    /// @return Slot0 The Slot0 value as a Slot0 struct
-    function getSlot0() external view nonReentrantView returns (Slot0 memory) {
-        return slot0;
+    /**
+     * @notice Get the current Dutch auction price.
+     * @return Current price (linearly decays from initPrice to 0 over epochPeriod)
+     */
+    function getPrice() public view returns (uint256) {
+        uint256 timePassed = block.timestamp - startTime;
+        if (timePassed > epochPeriod) return 0;
+        return initPrice - initPrice * timePassed / epochPeriod;
     }
 }

@@ -48,7 +48,7 @@ describe("local: test0", function () {
       entropyProvider,
     ] = await ethers.getSigners();
 
-    const wethArtifact = await ethers.getContractFactory("Base");
+    const wethArtifact = await ethers.getContractFactory("MockWETH");
     weth = await wethArtifact.deploy();
     console.log("- WETH Initialized");
 
@@ -56,20 +56,12 @@ describe("local: test0", function () {
     entropy = await entropyArtifact.deploy(entropyProvider.address);
     console.log("- Entropy Initialized");
 
-    const rigArtifact = await ethers.getContractFactory("Rig");
-    rig = await rigArtifact.deploy(
-      weth.address,
-      entropy.address,
-      treasury.address
-    );
-    console.log("- Rig Initialized");
-
-    unit = await ethers.getContractAt(
-      "contracts/Rig.sol:Unit",
-      await rig.unit()
-    );
+    // 1. Deploy Unit
+    const unitArtifact = await ethers.getContractFactory("Unit");
+    unit = await unitArtifact.deploy("TestUnit", "TUNIT");
     console.log("- Unit Initialized");
 
+    // 2. Deploy Auctions (using unit as payment token for tests)
     const auctionArtifact = await ethers.getContractFactory("Auction");
     auction0 = await auctionArtifact.deploy(
       convert("0.001", 18),
@@ -90,22 +82,30 @@ describe("local: test0", function () {
     );
     console.log("- Auction1 Initialized");
 
+    // 3. Deploy Rig with unit and auction
+    const rigArtifact = await ethers.getContractFactory("Rig");
+    rig = await rigArtifact.deploy(
+      unit.address,
+      weth.address,
+      entropy.address,
+      auction0.address
+    );
+    console.log("- Rig Initialized");
+
+    // 4. Transfer minting rights to Rig
+    await unit.setRig(rig.address);
+    console.log("- Unit minting rights transferred to Rig");
+
     const multicallArtifact = await ethers.getContractFactory("Multicall");
-    multicall = await multicallArtifact.deploy(rig.address);
+    multicall = await multicallArtifact.deploy(rig.address, auction0.address, unit.address);
     console.log("- Multicall Initialized");
 
     await rig.transferOwnership(multisig.address);
-    await multicall.transferOwnership(multisig.address);
     console.log("- ownership transferred to multisig");
-
-    await rig.connect(multisig).setTreasury(auction0.address);
-    console.log("- treasury set to auction0");
 
     await rig.connect(multisig).setFaction(faction0.address, true);
     await rig.connect(multisig).setFaction(faction1.address, true);
     console.log("- factions whitelisted");
-
-    await multicall.connect(multisig).setAuction(auction0.address);
     console.log("- auction0 set to multicall");
 
     console.log("Initialization Complete");
@@ -131,7 +131,7 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Rig: ", res.rig);
+    console.log("Rig: ", res.miner);
     console.log("URI: ", res.uri);
   });
 
@@ -144,7 +144,7 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Rig: ", res.rig);
+    console.log("Rig: ", res.miner);
     console.log("URI: ", res.uri);
   });
 
@@ -189,7 +189,7 @@ describe("local: test0", function () {
     console.log("Price: ", divDec(res.price));
     console.log("UPS: ", divDec(res.ups));
     console.log("Mined: ", divDec(res.mined));
-    console.log("Rig: ", res.rig);
+    console.log("Rig: ", res.miner);
     console.log("URI: ", res.uri);
   });
 

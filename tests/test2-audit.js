@@ -23,24 +23,29 @@ describe("AUDIT: Rig Contract Security Tests", function () {
       await ethers.getSigners();
 
     // Deploy WETH mock
-    const wethArtifact = await ethers.getContractFactory("Base");
+    const wethArtifact = await ethers.getContractFactory("MockWETH");
     weth = await wethArtifact.deploy();
 
     // Deploy Entropy mock
     const entropyArtifact = await ethers.getContractFactory("TestMockEntropy");
     entropy = await entropyArtifact.deploy(entropyProvider.address);
 
-    // Deploy Rig
+    // 1. Deploy Unit
+    const unitArtifact = await ethers.getContractFactory("Unit");
+    unit = await unitArtifact.deploy("TestUnit", "TUNIT");
+
+    // 2. Deploy Rig with unit
     const rigArtifact = await ethers.getContractFactory("Rig");
     rig = await rigArtifact.deploy(
+      unit.address,
       weth.address,
       entropy.address,
       treasury.address
     );
     await rig.setTeam(team.address);
 
-    // Get Unit token
-    unit = await ethers.getContractAt("contracts/Rig.sol:Unit", await rig.unit());
+    // 3. Transfer minting rights to Rig
+    await unit.setRig(rig.address);
 
     // Setup factions
     await rig.setFaction(faction1.address, true);
@@ -439,7 +444,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
 
     it("4.3 Slot miner address updates correctly", async function () {
       let slot = await rig.getSlot(0);
-      expect(slot.rig).to.equal(AddressZero);
+      expect(slot.miner).to.equal(AddressZero);
 
       let latest = await ethers.provider.getBlock("latest");
       await rig
@@ -447,7 +452,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         .mine(user1.address, AddressZero, 0, slot.epochId, latest.timestamp + 3600, 0, "#111111");
 
       slot = await rig.getSlot(0);
-      expect(slot.rig).to.equal(user1.address);
+      expect(slot.miner).to.equal(user1.address);
 
       latest = await ethers.provider.getBlock("latest");
       await rig
@@ -455,7 +460,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         .mine(user2.address, AddressZero, 0, slot.epochId, latest.timestamp + 3600, slot.initPrice, "#222222");
 
       slot = await rig.getSlot(0);
-      expect(slot.rig).to.equal(user2.address);
+      expect(slot.miner).to.equal(user2.address);
     });
 
     it("4.4 Slot URI updates correctly", async function () {
@@ -490,7 +495,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         .mine(user1.address, AddressZero, 1, 0, latest2.timestamp + 3600, 0, "#111111");
 
       const slot1 = await rig.getSlot(1);
-      expect(slot1.rig).to.equal(user1.address);
+      expect(slot1.miner).to.equal(user1.address);
     });
 
     it("4.6 Different slots are independent", async function () {
@@ -513,15 +518,15 @@ describe("AUDIT: Rig Contract Security Tests", function () {
       const slot1 = await rig.getSlot(1);
       const slot2 = await rig.getSlot(2);
 
-      expect(slot0.rig).to.equal(user1.address);
+      expect(slot0.miner).to.equal(user1.address);
       expect(slot0.epochId).to.equal(1);
       expect(slot0.uri).to.equal("#000000");
 
-      expect(slot1.rig).to.equal(user2.address);
+      expect(slot1.miner).to.equal(user2.address);
       expect(slot1.epochId).to.equal(1);
       expect(slot1.uri).to.equal("#111111");
 
-      expect(slot2.rig).to.equal(AddressZero);
+      expect(slot2.miner).to.equal(AddressZero);
       expect(slot2.epochId).to.equal(0);
     });
   });
@@ -643,7 +648,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         .mine(user2.address, AddressZero, 0, slot.epochId, latest.timestamp + 3600, price, "#222222");
 
       const slot2 = await rig.getSlot(0);
-      expect(slot2.rig).to.equal(user2.address);
+      expect(slot2.miner).to.equal(user2.address);
     });
 
     it("6.2 Price respects MIN_INIT_PRICE floor", async function () {
@@ -662,12 +667,15 @@ describe("AUDIT: Rig Contract Security Tests", function () {
     it("6.3 Mining at exactly deadline timestamp works", async function () {
       const slot = await rig.getSlot(0);
       const latest = await ethers.provider.getBlock("latest");
-      const deadline = latest.timestamp + 1;
+      const targetTimestamp = latest.timestamp + 10;
+
+      // Set next block timestamp to exactly match our deadline
+      await ethers.provider.send("evm_setNextBlockTimestamp", [targetTimestamp]);
 
       // This should work since block.timestamp <= deadline
       await rig
         .connect(user1)
-        .mine(user1.address, AddressZero, 0, slot.epochId, deadline, 0, "#111111");
+        .mine(user1.address, AddressZero, 0, slot.epochId, targetTimestamp, 0, "#111111");
     });
 
     it("6.4 Large capacity increase works", async function () {
@@ -749,7 +757,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         treasury: await weth.balanceOf(treasury.address),
         team: await weth.balanceOf(team.address),
         faction: await weth.balanceOf(faction1.address),
-        rig: await weth.balanceOf(user1.address),
+        miner: await weth.balanceOf(user1.address),
         payer: await weth.balanceOf(user2.address),
       };
 
@@ -765,7 +773,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         treasury: await weth.balanceOf(treasury.address),
         team: await weth.balanceOf(team.address),
         faction: await weth.balanceOf(faction1.address),
-        rig: await weth.balanceOf(user1.address),
+        miner: await weth.balanceOf(user1.address),
         payer: await weth.balanceOf(user2.address),
       };
 
@@ -774,7 +782,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
         .sub(balancesBefore.treasury)
         .add(balancesAfter.team.sub(balancesBefore.team))
         .add(balancesAfter.faction.sub(balancesBefore.faction))
-        .add(balancesAfter.rig.sub(balancesBefore.rig));
+        .add(balancesAfter.miner.sub(balancesBefore.miner));
 
       expect(pricePaid).to.equal(totalReceived);
     });
@@ -894,7 +902,7 @@ describe("AUDIT: Rig Contract Security Tests", function () {
           e.event === "Rig__TreasuryFee" ||
           e.event === "Rig__TeamFee" ||
           e.event === "Rig__FactionFee" ||
-          e.event === "Rig__RigFee"
+          e.event === "Rig__MinerFee"
       );
 
       expect(feeEvents.length).to.equal(4);

@@ -1,52 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IEntropyV2} from "@pythnetwork/entropy-sdk-solidity/IEntropyV2.sol";
 import {IEntropyConsumer} from "@pythnetwork/entropy-sdk-solidity/IEntropyConsumer.sol";
+import {IUnit} from "./interfaces/IUnit.sol";
 
-contract Unit is ERC20, ERC20Permit, ERC20Votes {
-    address public immutable rig;
-
-    error Unit__NotRig();
-
-    event Unit__Minted(address account, uint256 amount);
-    event Unit__Burned(address account, uint256 amount);
-
-    constructor() ERC20("CoreTest", "CORETEST") ERC20Permit("CoreTest") {
-        rig = msg.sender;
-    }
-
-    function mint(address account, uint256 amount) external {
-        if (msg.sender != rig) revert Unit__NotRig();
-        _mint(account, amount);
-        emit Unit__Minted(account, amount);
-    }
-
-    function burn(uint256 amount) external {
-        _burn(msg.sender, amount);
-        emit Unit__Burned(msg.sender, amount);
-    }
-
-    function _afterTokenTransfer(address from, address to, uint256 amount) internal override(ERC20, ERC20Votes) {
-        super._afterTokenTransfer(from, to, amount);
-    }
-
-    function _mint(address to, uint256 amount) internal override(ERC20, ERC20Votes) {
-        super._mint(to, amount);
-    }
-
-    function _burn(address account, uint256 amount) internal override(ERC20, ERC20Votes) {
-        super._burn(account, amount);
-    }
-}
-
+/**
+ * @title Rig
+ * @author heesho
+ * @notice A mining rig contract that uses Dutch auctions for slot acquisition.
+ *         Miners compete to control slots, paying fees that are distributed to
+ *         treasury, team, factions, and previous miners. Unit tokens are minted
+ *         based on time held and multiplier bonuses from Pyth Entropy randomness.
+ */
 contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
@@ -92,11 +62,11 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 ups;
         uint256 multiplier;
         uint256 lastMultiplierTime;
-        address rig;
+        address miner;
         string uri;
     }
 
-    error Rig__InvalidRig();
+    error Rig__InvalidMiner();
     error Rig__InvalidIndex();
     error Rig__EpochIdMismatch();
     error Rig__MaxPriceExceeded();
@@ -111,7 +81,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
 
     event Rig__Mine(
         address sender,
-        address indexed rig,
+        address indexed miner,
         address indexed faction,
         uint256 indexed index,
         uint256 epochId,
@@ -123,24 +93,29 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     event Rig__FactionFee(address indexed faction, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Rig__TreasuryFee(address indexed treasury, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Rig__TeamFee(address indexed team, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Rig__RigFee(address indexed rig, uint256 indexed index, uint256 indexed epochId, uint256 amount);
-    event Rig__Mint(address indexed rig, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__MinerFee(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
+    event Rig__Mint(address indexed miner, uint256 indexed index, uint256 indexed epochId, uint256 amount);
     event Rig__TreasurySet(address indexed treasury);
     event Rig__TeamSet(address indexed team);
     event Rig__FactionSet(address indexed faction, bool isFaction);
     event Rig__CapacitySet(uint256 capacity);
     event Rig__MultipliersSet(uint256[] multipliers);
 
-    constructor(address _quote, address _entropy, address _treasury) {
+    constructor(
+        address _unit,
+        address _quote,
+        address _entropy,
+        address _treasury
+    ) {
+        unit = _unit;
         quote = _quote;
         treasury = _treasury;
         startTime = block.timestamp;
-        unit = address(new Unit());
         entropy = IEntropyV2(_entropy);
     }
 
     function mine(
-        address rig,
+        address miner,
         address faction,
         uint256 index,
         uint256 epochId,
@@ -148,7 +123,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 maxPrice,
         string memory uri
     ) external payable nonReentrant returns (uint256 price) {
-        if (rig == address(0)) revert Rig__InvalidRig();
+        if (miner == address(0)) revert Rig__InvalidMiner();
         if (block.timestamp > deadline) revert Rig__Expired();
         if (index >= capacity) revert Rig__InvalidIndex();
         if (faction != address(0) && !account_IsFaction[faction]) revert Rig__InvalidFaction();
@@ -164,7 +139,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
             uint256 teamFee = team != address(0) ? price * TEAM_FEE / DIVISOR : 0;
             uint256 factionFee = faction != address(0) ? price * FACTION_FEE / DIVISOR : 0;
             uint256 treasuryFee = price * TOTAL_FEE / DIVISOR - teamFee - factionFee;
-            uint256 rigFee = price - treasuryFee - teamFee - factionFee;
+            uint256 minerFee = price - treasuryFee - teamFee - factionFee;
 
             IERC20(quote).safeTransferFrom(msg.sender, treasury, treasuryFee);
             emit Rig__TreasuryFee(treasury, index, epochId, treasuryFee);
@@ -179,8 +154,8 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
                 emit Rig__FactionFee(faction, index, epochId, factionFee);
             }
 
-            IERC20(quote).safeTransferFrom(msg.sender, slotCache.rig, rigFee);
-            emit Rig__RigFee(slotCache.rig, index, epochId, rigFee);
+            IERC20(quote).safeTransferFrom(msg.sender, slotCache.miner, minerFee);
+            emit Rig__MinerFee(slotCache.miner, index, epochId, minerFee);
         }
 
         uint256 newInitPrice = price * PRICE_MULTIPLIER / PRECISION;
@@ -194,9 +169,9 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 mineTime = block.timestamp - slotCache.startTime;
         uint256 minedAmount = mineTime * slotCache.ups * slotCache.multiplier / PRECISION;
 
-        if (slotCache.rig != address(0)) {
-            Unit(unit).mint(slotCache.rig, minedAmount);
-            emit Rig__Mint(slotCache.rig, index, epochId, minedAmount);
+        if (slotCache.miner != address(0)) {
+            IUnit(unit).mint(slotCache.miner, minedAmount);
+            emit Rig__Mint(slotCache.miner, index, epochId, minedAmount);
         }
 
         unchecked {
@@ -204,7 +179,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         }
         slotCache.initPrice = newInitPrice;
         slotCache.startTime = block.timestamp;
-        slotCache.rig = rig;
+        slotCache.miner = miner;
         slotCache.ups = _getUpsFromTime(block.timestamp) / capacity;
         slotCache.uri = uri;
 
@@ -215,7 +190,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
 
         index_Slot[index] = slotCache;
 
-        emit Rig__Mine(msg.sender, rig, faction, index, epochId, price, uri);
+        emit Rig__Mine(msg.sender, miner, faction, index, epochId, price, uri);
 
         if (shouldUpdateMultiplier) {
             uint128 fee = entropy.getFeeV2();
@@ -237,7 +212,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         delete sequence_Epoch[sequenceNumber];
 
         Slot memory slotCache = index_Slot[index];
-        if (slotCache.epochId != epoch || slotCache.rig == address(0)) return;
+        if (slotCache.epochId != epoch || slotCache.miner == address(0)) return;
 
         uint256 multiplier = _drawMultiplier(randomNumber);
         slotCache.multiplier = multiplier;

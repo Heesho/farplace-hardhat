@@ -15,7 +15,7 @@ describe("local: test1 - Fee Distribution Tests", function () {
     [owner, multisig, treasury, team, user0, user1, faction0, faction1, entropyProvider] =
       await ethers.getSigners();
 
-    const wethArtifact = await ethers.getContractFactory("Base");
+    const wethArtifact = await ethers.getContractFactory("MockWETH");
     weth = await wethArtifact.deploy();
     console.log("- WETH Initialized");
 
@@ -23,8 +23,15 @@ describe("local: test1 - Fee Distribution Tests", function () {
     entropy = await entropyArtifact.deploy(entropyProvider.address);
     console.log("- Entropy Initialized");
 
+    // 1. Deploy Unit
+    const unitArtifact = await ethers.getContractFactory("Unit");
+    unit = await unitArtifact.deploy("TestUnit", "TUNIT");
+    console.log("- Unit Initialized");
+
+    // 2. Deploy Rig with unit
     const rigArtifact = await ethers.getContractFactory("Rig");
     rig = await rigArtifact.deploy(
+      unit.address,
       weth.address,
       entropy.address,
       treasury.address
@@ -32,8 +39,9 @@ describe("local: test1 - Fee Distribution Tests", function () {
     await rig.setTeam(team.address);
     console.log("- Rig Initialized");
 
-    unit = await ethers.getContractAt("contracts/Rig.sol:Unit", await rig.unit());
-    console.log("- Unit Initialized");
+    // 3. Transfer minting rights to Rig
+    await unit.setRig(rig.address);
+    console.log("- Unit minting rights transferred to Rig");
 
     await rig.transferOwnership(multisig.address);
     console.log("- Ownership transferred to multisig");
