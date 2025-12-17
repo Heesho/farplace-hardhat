@@ -24,7 +24,7 @@ contract Auction is ReentrancyGuard {
     uint256 public constant MIN_PRICE_MULTIPLIER = 1.1e18; // 1.1x minimum
     uint256 public constant MAX_PRICE_MULTIPLIER = 3e18; // 3x maximum
     uint256 public constant ABS_MIN_INIT_PRICE = 1e6;
-    uint256 public constant ABS_MAX_INIT_PRICE = type(uint256).max;
+    uint256 public constant ABS_MAX_INIT_PRICE = type(uint192).max;
     uint256 public constant PRICE_MULTIPLIER_SCALE = 1e18;
 
     /*----------  IMMUTABLES  -------------------------------------------*/
