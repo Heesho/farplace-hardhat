@@ -35,7 +35,7 @@ interface IRig {
         uint256 epochId,
         uint256 deadline,
         uint256 maxPrice,
-        string memory uri
+        string calldata uri
     ) external payable returns (uint256 price);
 
     function setTreasury(address _treasury) external;

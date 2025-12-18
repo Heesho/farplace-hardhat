@@ -55,6 +55,8 @@ contract Auction is ReentrancyGuard {
     error Auction__PriceMultiplierExceedsMax();
     error Auction__MinInitPriceBelowMin();
     error Auction__MinInitPriceExceedsAbsMaxInitPrice();
+    error Auction__InvalidPaymentToken();
+    error Auction__InvalidPaymentReceiver();
 
     /*----------  EVENTS  -----------------------------------------------*/
 
@@ -79,6 +81,8 @@ contract Auction is ReentrancyGuard {
         uint256 _priceMultiplier,
         uint256 _minInitPrice
     ) {
+        if (_paymentToken == address(0)) revert Auction__InvalidPaymentToken();
+        if (_paymentReceiver == address(0)) revert Auction__InvalidPaymentReceiver();
         if (_initPrice < _minInitPrice) revert Auction__InitPriceBelowMin();
         if (_initPrice > ABS_MAX_INIT_PRICE) revert Auction__InitPriceExceedsMax();
         if (_epochPeriod < MIN_EPOCH_PERIOD) revert Auction__EpochPeriodBelowMin();

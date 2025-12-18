@@ -20,6 +20,8 @@ import {IUnit} from "./interfaces/IUnit.sol";
 contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
+    /*----------  CONSTANTS  --------------------------------------------*/
+
     uint256 public constant TOTAL_FEE = 2_000;
     uint256 public constant TEAM_FEE = 200;
     uint256 public constant FACTION_FEE = 200;
@@ -39,14 +41,17 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     uint256 public constant MULTIPLIER_DURATION = 24 hours;
     uint256 public constant MAX_CAPACITY = 1_000_000;
 
+    /*----------  IMMUTABLES  -------------------------------------------*/
+
     address public immutable unit;
     address public immutable quote;
+    address public immutable entropy;
     uint256 public immutable startTime;
 
-    IEntropyV2 entropy;
+    /*----------  STATE  ------------------------------------------------*/
+
     address public treasury;
     address public team;
-
     uint256 public capacity = 1;
     mapping(address => bool) public account_IsFaction;
     uint256[] public multipliers;
@@ -54,6 +59,8 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     mapping(uint256 => Slot) public index_Slot;
     mapping(uint64 => uint256) public sequence_Index;
     mapping(uint64 => uint256) public sequence_Epoch;
+
+    /*----------  STRUCTS  ----------------------------------------------*/
 
     struct Slot {
         uint256 epochId;
@@ -66,18 +73,24 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         string uri;
     }
 
+    /*----------  ERRORS  -----------------------------------------------*/
+
+    error Rig__InvalidAddress();
     error Rig__InvalidMiner();
     error Rig__InvalidIndex();
     error Rig__EpochIdMismatch();
     error Rig__MaxPriceExceeded();
     error Rig__Expired();
     error Rig__InsufficientFee();
+    error Rig__RefundFailed();
     error Rig__InvalidTreasury();
     error Rig__InvalidFaction();
     error Rig__CapacityBelowCurrent();
     error Rig__CapacityExceedsMax();
     error Rig__InvalidMultiplier();
     error Rig__InvalidLength();
+
+    /*----------  EVENTS  -----------------------------------------------*/
 
     event Rig__Mine(
         address sender,
@@ -101,18 +114,27 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     event Rig__CapacitySet(uint256 capacity);
     event Rig__MultipliersSet(uint256[] multipliers);
 
+    /*----------  CONSTRUCTOR  ------------------------------------------*/
+
     constructor(
         address _unit,
         address _quote,
         address _entropy,
         address _treasury
     ) {
+        if (_unit == address(0)) revert Rig__InvalidAddress();
+        if (_quote == address(0)) revert Rig__InvalidAddress();
+        if (_entropy == address(0)) revert Rig__InvalidAddress();
+        if (_treasury == address(0)) revert Rig__InvalidAddress();
+
         unit = _unit;
         quote = _quote;
+        entropy = _entropy;
         treasury = _treasury;
         startTime = block.timestamp;
-        entropy = IEntropyV2(_entropy);
     }
+
+    /*----------  EXTERNAL FUNCTIONS  -----------------------------------*/
 
     function mine(
         address miner,
@@ -121,7 +143,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 epochId,
         uint256 deadline,
         uint256 maxPrice,
-        string memory uri
+        string calldata uri
     ) external payable nonReentrant returns (uint256 price) {
         if (miner == address(0)) revert Rig__InvalidMiner();
         if (block.timestamp > deadline) revert Rig__Expired();
@@ -193,16 +215,25 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         emit Rig__Mine(msg.sender, miner, faction, index, epochId, price, uri);
 
         if (shouldUpdateMultiplier) {
-            uint128 fee = entropy.getFeeV2();
+            uint128 fee = IEntropyV2(entropy).getFeeV2();
             if (msg.value < fee) revert Rig__InsufficientFee();
-            uint64 seq = entropy.requestV2{value: fee}();
+            uint64 seq = IEntropyV2(entropy).requestV2{value: fee}();
             sequence_Index[seq] = index;
             sequence_Epoch[seq] = slotCache.epochId;
             emit Rig__EntropyRequested(index, slotCache.epochId, seq);
+
+            // Refund excess ETH
+            uint256 refund = msg.value - fee;
+            if (refund > 0) {
+                (bool success,) = msg.sender.call{value: refund}("");
+                if (!success) revert Rig__RefundFailed();
+            }
         }
 
         return price;
     }
+
+    /*----------  INTERNAL FUNCTIONS  -----------------------------------*/
 
     function entropyCallback(uint64 sequenceNumber, address, /*provider*/ bytes32 randomNumber) internal override {
         uint256 index = sequence_Index[sequenceNumber];
@@ -246,6 +277,8 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         return ups;
     }
 
+    /*----------  OWNER FUNCTIONS  --------------------------------------*/
+
     function setTreasury(address _treasury) external onlyOwner {
         if (_treasury == address(0)) revert Rig__InvalidTreasury();
         treasury = _treasury;
@@ -284,12 +317,14 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         emit Rig__MultipliersSet(_multipliers);
     }
 
+    /*----------  VIEW FUNCTIONS  ---------------------------------------*/
+
     function getEntropy() internal view override returns (address) {
-        return address(entropy);
+        return entropy;
     }
 
     function getEntropyFee() external view returns (uint256) {
-        return entropy.getFeeV2();
+        return IEntropyV2(entropy).getFeeV2();
     }
 
     function getPrice(uint256 index) external view returns (uint256) {

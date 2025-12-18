@@ -31,6 +31,9 @@ describe("Multicall Contract", function () {
     const unitArtifact = await ethers.getContractFactory("Unit");
     unit = await unitArtifact.deploy("FarPlace", "FARP");
 
+    // Temporarily set rig to owner so we can mint for LP creation
+    await unit.setRig(owner.address);
+
     // Deploy Uniswap V2 mocks
     const factoryArtifact = await ethers.getContractFactory("MockUniswapV2Factory");
     factory = await factoryArtifact.deploy();

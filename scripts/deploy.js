@@ -33,6 +33,9 @@ const AUCTION_PERIOD = 86400; // 1 day
 const PRICE_MULTIPLIER = convert("1.2", 18); // 120%
 const MIN_INIT_PRICE = convert("1", 18); // 1 LP
 
+// Timelock settings
+const TIMELOCK_MIN_DELAY = 48 * 3600; // 48 hours in seconds
+
 /*===========================  END SETTINGS  ========================*/
 /*===================================================================*/
 
@@ -54,7 +57,7 @@ const ERC20_ABI = [
 ];
 
 // Contract Variables
-let unit, rig, auction, multicall, lpToken;
+let unit, rig, auction, multicall, lpToken, timelock;
 
 /*===================================================================*/
 /*===========================  CONTRACT DATA  =======================*/
@@ -75,6 +78,10 @@ async function getContracts() {
   multicall = await ethers.getContractAt(
     "contracts/Multicall.sol:Multicall",
     "0x..." // Multicall address
+  );
+  timelock = await ethers.getContractAt(
+    "@openzeppelin/contracts/governance/TimelockController.sol:TimelockController",
+    "0x..." // Timelock address
   );
   console.log("Contracts Retrieved");
 }
@@ -220,6 +227,39 @@ async function deployMulticall() {
   console.log("Multicall Deployed at:", multicall.address);
 }
 
+async function deployTimelock() {
+  console.log("Starting TimelockController Deployment");
+  console.log("----------------------------------------");
+  console.log("Settings:");
+  console.log("  - Min Delay:", TIMELOCK_MIN_DELAY, "seconds (", TIMELOCK_MIN_DELAY / 3600, "hours )");
+  console.log("  - Proposer (Safe):", MULTISIG_ADDRESS);
+  console.log("  - Executor: Anyone (open)");
+  console.log("  - Admin: None (trustless)");
+  console.log("----------------------------------------");
+
+  const timelockArtifact = await ethers.getContractFactory("TimelockController");
+  const timelockContract = await timelockArtifact.deploy(
+    TIMELOCK_MIN_DELAY,
+    [MULTISIG_ADDRESS], // proposers - only Safe can propose
+    [AddressZero], // executors - anyone can execute after delay
+    AddressZero, // admin - no admin (trustless)
+    {
+      gasPrice: ethers.gasPrice,
+    }
+  );
+  timelock = await timelockContract.deployed();
+  await sleep(5000);
+  console.log("TimelockController Deployed at:", timelock.address);
+}
+
+async function transferUnitOwnershipToTimelock() {
+  console.log("Transferring Unit ownership to Timelock...");
+  const tx = await unit.transferOwnership(timelock.address);
+  await tx.wait();
+  console.log("Unit ownership transferred to Timelock");
+  console.log("New Unit owner:", await unit.owner());
+}
+
 async function verifyUnit() {
   console.log("Starting Unit Verification");
   await hre.run("verify:verify", {
@@ -267,6 +307,21 @@ async function verifyMulticall() {
   console.log("Multicall Verified");
 }
 
+async function verifyTimelock() {
+  console.log("Starting TimelockController Verification");
+  await hre.run("verify:verify", {
+    address: timelock.address,
+    contract: "@openzeppelin/contracts/governance/TimelockController.sol:TimelockController",
+    constructorArguments: [
+      TIMELOCK_MIN_DELAY,
+      [MULTISIG_ADDRESS],
+      [AddressZero],
+      AddressZero,
+    ],
+  });
+  console.log("TimelockController Verified");
+}
+
 async function printDeployment(lpAddress) {
   console.log("**************************************************************");
   console.log("Unit:      ", unit.address);
@@ -274,7 +329,29 @@ async function printDeployment(lpAddress) {
   console.log("Auction:   ", auction.address);
   console.log("Rig:       ", rig.address);
   console.log("Multicall: ", multicall.address);
+  if (timelock) {
+    console.log("Timelock:  ", timelock.address);
+  }
   console.log("**************************************************************");
+}
+
+async function printTimelockUsage() {
+  console.log("\n======================================================");
+  console.log("                 HOW TO USE THE TIMELOCK               ");
+  console.log("======================================================");
+  console.log("\n1. PROPOSE a setRig call (from Safe):");
+  console.log("   - Target:", unit.address);
+  console.log("   - Value: 0");
+  console.log("   - Data: unit.interface.encodeFunctionData('setRig', [NEW_RIG_ADDRESS])");
+  console.log("   - Predecessor: 0x0000...0000 (32 bytes of zeros)");
+  console.log("   - Salt: unique bytes32 value (e.g., keccak256('setRig-1'))");
+  console.log("   - Delay:", TIMELOCK_MIN_DELAY, "seconds");
+  console.log("");
+  console.log("2. WAIT", TIMELOCK_MIN_DELAY / 3600, "hours");
+  console.log("");
+  console.log("3. EXECUTE the proposal (anyone can execute):");
+  console.log("   - Call timelock.execute() with same parameters");
+  console.log("======================================================\n");
 }
 
 async function main() {
@@ -285,7 +362,7 @@ async function main() {
 
   //===================================================================
   // Deploy System
-  // Order: Unit -> mint Unit -> create LP -> Auction -> Rig -> setRig -> Multicall
+  // Order: Unit -> mint Unit -> create LP -> Auction -> Rig -> setRig -> Multicall -> Timelock
   //===================================================================
 
   // console.log("Starting System Deployment");
@@ -315,7 +392,14 @@ async function main() {
   // 7. Deploy Multicall
   // await deployMulticall();
 
+  // 8. Deploy Timelock (optional - for governance)
+  // await deployTimelock();
+
+  // 9. Transfer Unit ownership to Timelock (optional - for governance)
+  // await transferUnitOwnershipToTimelock();
+
   // await printDeployment(LP_ADDRESS);
+  // await printTimelockUsage();
 
   /*********** UPDATE getContracts() with new addresses *************/
 
@@ -331,6 +415,8 @@ async function main() {
   // await verifyRig();
   // await sleep(5000);
   // await verifyMulticall();
+  // await sleep(5000);
+  // await verifyTimelock();
   // await sleep(5000);
 
   //===================================================================

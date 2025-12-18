@@ -10,11 +10,20 @@ import {IWETH} from "./interfaces/IWETH.sol";
 contract Multicall {
     using SafeERC20 for IERC20;
 
+    /*----------  IMMUTABLES  -------------------------------------------*/
+
     address public immutable rig;
     address public immutable unit;
     address public immutable weth;
     address public immutable donut;
     address public immutable auction;
+
+    /*----------  ERRORS  -----------------------------------------------*/
+
+    error Multicall__InsufficientETH();
+    error Multicall__InvalidAddress();
+
+    /*----------  STRUCTS  ----------------------------------------------*/
 
     struct RigState {
         uint256 ups;
@@ -48,7 +57,13 @@ contract Multicall {
         uint256 paymentTokenBalance;
     }
 
+    /*----------  CONSTRUCTOR  ------------------------------------------*/
+
     constructor(address _rig, address _auction, address _donut) {
+        if (_rig == address(0)) revert Multicall__InvalidAddress();
+        if (_auction == address(0)) revert Multicall__InvalidAddress();
+        if (_donut == address(0)) revert Multicall__InvalidAddress();
+
         rig = _rig;
         auction = _auction;
         donut = _donut;
@@ -56,15 +71,22 @@ contract Multicall {
         weth = IRig(rig).quote();
     }
 
+    /*----------  EXTERNAL FUNCTIONS  -----------------------------------*/
+
     function mine(
         address faction,
         uint256 index,
         uint256 epochId,
         uint256 deadline,
         uint256 maxPrice,
-        string memory uri
+        string calldata uri
     ) external payable {
-        uint256 entropyFee = IRig(rig).getEntropyFee();
+        IRig.Slot memory slot = IRig(rig).getSlot(index);
+        uint256 multiplierDuration = IRig(rig).MULTIPLIER_DURATION();
+        bool needsEntropy = block.timestamp - slot.lastMultiplierTime > multiplierDuration;
+
+        uint256 entropyFee = needsEntropy ? IRig(rig).getEntropyFee() : 0;
+        if (msg.value < entropyFee) revert Multicall__InsufficientETH();
         uint256 payment = msg.value - entropyFee;
         IWETH(weth).deposit{value: payment}();
         IERC20(weth).safeApprove(rig, 0);
@@ -85,6 +107,8 @@ contract Multicall {
         IERC20(paymentToken).safeApprove(auction, price);
         IAuction(auction).buy(assets, msg.sender, epochId, deadline, maxPaymentTokenAmount);
     }
+
+    /*----------  VIEW FUNCTIONS  ---------------------------------------*/
 
     function getRig(address account) external view returns (RigState memory state) {
         address pool = IAuction(auction).paymentToken();

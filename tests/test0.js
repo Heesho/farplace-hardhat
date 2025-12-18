@@ -66,7 +66,7 @@ describe("local: test0", function () {
     auction0 = await auctionArtifact.deploy(
       convert("0.001", 18),
       unit.address,
-      AddressZero,
+      AddressDead,
       604800,
       convert("1.2", 18),
       convert("0.001", 18)

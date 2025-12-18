@@ -32,6 +32,9 @@ describe("Auction Contract", function () {
     const unitArtifact = await ethers.getContractFactory("Unit");
     unit = await unitArtifact.deploy("TestUnit", "TUNIT");
 
+    // Temporarily set rig to owner so we can mint for LP creation
+    await unit.setRig(owner.address);
+
     // Deploy Uniswap V2 mocks
     const factoryArtifact = await ethers.getContractFactory("MockUniswapV2Factory");
     factory = await factoryArtifact.deploy();
@@ -620,6 +623,40 @@ describe("Auction Contract", function () {
 
       expect(await maxAuction.epochPeriod()).to.equal(365 * 24 * 3600);
       expect(await maxAuction.priceMultiplier()).to.equal(convert("3", 18));
+    });
+
+    it("should cap newInitPrice at ABS_MAX_INIT_PRICE", async function () {
+      // Get ABS_MAX_INIT_PRICE (uint192.max)
+      const ABS_MAX_INIT_PRICE = ethers.BigNumber.from(2).pow(192).sub(1);
+
+      // Deploy auction with very high init price (ABS_MAX / 2) and 3x multiplier
+      // When multiplied by 3, it should exceed ABS_MAX and get capped
+      const highInitPrice = ABS_MAX_INIT_PRICE.div(2);
+
+      const auctionArtifact = await ethers.getContractFactory("Auction");
+      const highAuction = await auctionArtifact.deploy(
+        highInitPrice,
+        lpToken.address,
+        burnAddress.address,
+        3600, // 1 hour epoch
+        convert("3", 18), // 3x multiplier
+        1e6
+      );
+
+      // Mint a huge amount of LP tokens for this test
+      await lpToken.connect(owner).mint(buyer1.address, highInitPrice.mul(2));
+      await lpToken.connect(buyer1).approve(highAuction.address, ethers.constants.MaxUint256);
+
+      // Buy immediately at init price with high multiplier
+      const price = await highAuction.getPrice();
+      const epochId = await highAuction.epochId();
+      const latest = await ethers.provider.getBlock("latest");
+
+      await highAuction.connect(buyer1).buy([weth.address], buyer1.address, epochId, latest.timestamp + 3600, price);
+
+      // New init price should be capped at ABS_MAX_INIT_PRICE
+      const newInitPrice = await highAuction.initPrice();
+      expect(newInitPrice).to.equal(ABS_MAX_INIT_PRICE);
     });
   });
 });

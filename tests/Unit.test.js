@@ -14,6 +14,9 @@ describe("Unit Token Contract", function () {
 
     const unitArtifact = await ethers.getContractFactory("Unit");
     unit = await unitArtifact.deploy("FarPlace", "FARP");
+
+    // Set rig to the rig signer (owner is the Ownable owner)
+    await unit.setRig(rig.address);
   });
 
   describe("Deployment", function () {
@@ -22,8 +25,15 @@ describe("Unit Token Contract", function () {
       expect(await unit.symbol()).to.equal("FARP");
     });
 
+    it("should set deployer as owner", async function () {
+      expect(await unit.owner()).to.equal(owner.address);
+    });
+
     it("should set deployer as initial rig", async function () {
-      expect(await unit.rig()).to.equal(owner.address);
+      // Deploy fresh to test initial state
+      const unitArtifact = await ethers.getContractFactory("Unit");
+      const freshUnit = await unitArtifact.deploy("Test", "TEST");
+      expect(await freshUnit.rig()).to.equal(owner.address);
     });
 
     it("should have zero initial supply", async function () {
@@ -37,46 +47,51 @@ describe("Unit Token Contract", function () {
     });
   });
 
-  describe("setRig - Minting Rights Transfer", function () {
-    it("should allow current rig to transfer minting rights", async function () {
+  describe("setRig - Owner Controls Rig Address", function () {
+    it("should allow owner to set rig address", async function () {
       await unit.setRig(newRig.address);
       expect(await unit.rig()).to.equal(newRig.address);
     });
 
-    it("should emit Unit__RigSet event on transfer", async function () {
+    it("should emit Unit__RigSet event on update", async function () {
       await expect(unit.setRig(newRig.address))
         .to.emit(unit, "Unit__RigSet")
         .withArgs(newRig.address);
     });
 
-    it("should reject setRig from non-rig address", async function () {
-      await expect(unit.connect(user1).setRig(newRig.address)).to.be.reverted;
+    it("should reject setRig from non-owner address", async function () {
+      await expect(unit.connect(user1).setRig(newRig.address)).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
     });
 
     it("should reject setting rig to zero address", async function () {
       await expect(unit.setRig(AddressZero)).to.be.reverted;
     });
 
-    it("should allow new rig to transfer rights again", async function () {
+    it("should allow owner to update rig multiple times", async function () {
       await unit.setRig(newRig.address);
-      await unit.connect(newRig).setRig(user1.address);
+      expect(await unit.rig()).to.equal(newRig.address);
+      await unit.setRig(user1.address);
       expect(await unit.rig()).to.equal(user1.address);
     });
 
-    it("should prevent old rig from transferring after transfer", async function () {
-      await unit.setRig(newRig.address);
-      await expect(unit.setRig(user1.address)).to.be.reverted;
+    it("should not allow rig to call setRig", async function () {
+      // rig can mint but cannot call setRig (that's owner only)
+      await expect(unit.connect(rig).setRig(user1.address)).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
     });
   });
 
   describe("Minting", function () {
     it("should allow rig to mint tokens", async function () {
-      await unit.mint(user1.address, convert("1000", 18));
+      await unit.connect(rig).mint(user1.address, convert("1000", 18));
       expect(await unit.balanceOf(user1.address)).to.equal(convert("1000", 18));
     });
 
     it("should increase total supply on mint", async function () {
-      await unit.mint(user1.address, convert("1000", 18));
+      await unit.connect(rig).mint(user1.address, convert("1000", 18));
       expect(await unit.totalSupply()).to.equal(convert("1000", 18));
     });
 
@@ -86,34 +101,40 @@ describe("Unit Token Contract", function () {
       ).to.be.reverted;
     });
 
+    it("should reject mint from owner (owner is not rig)", async function () {
+      await expect(
+        unit.connect(owner).mint(user1.address, convert("1000", 18))
+      ).to.be.reverted;
+    });
+
     it("should allow minting to multiple addresses", async function () {
-      await unit.mint(user1.address, convert("500", 18));
-      await unit.mint(user2.address, convert("300", 18));
+      await unit.connect(rig).mint(user1.address, convert("500", 18));
+      await unit.connect(rig).mint(user2.address, convert("300", 18));
       expect(await unit.balanceOf(user1.address)).to.equal(convert("500", 18));
       expect(await unit.balanceOf(user2.address)).to.equal(convert("300", 18));
       expect(await unit.totalSupply()).to.equal(convert("800", 18));
     });
 
     it("should allow minting zero tokens", async function () {
-      await unit.mint(user1.address, 0);
+      await unit.connect(rig).mint(user1.address, 0);
       expect(await unit.balanceOf(user1.address)).to.equal(0);
     });
 
-    it("should allow new rig to mint after transfer", async function () {
+    it("should allow new rig to mint after owner updates rig", async function () {
       await unit.setRig(newRig.address);
       await unit.connect(newRig).mint(user1.address, convert("1000", 18));
       expect(await unit.balanceOf(user1.address)).to.equal(convert("1000", 18));
     });
 
-    it("should prevent old rig from minting after transfer", async function () {
+    it("should prevent old rig from minting after owner updates rig", async function () {
       await unit.setRig(newRig.address);
-      await expect(unit.mint(user1.address, convert("1000", 18))).to.be.reverted;
+      await expect(unit.connect(rig).mint(user1.address, convert("1000", 18))).to.be.reverted;
     });
   });
 
   describe("Burning", function () {
     beforeEach("Mint tokens to user", async function () {
-      await unit.mint(user1.address, convert("1000", 18));
+      await unit.connect(rig).mint(user1.address, convert("1000", 18));
     });
 
     it("should allow token holder to burn their tokens", async function () {
@@ -137,7 +158,7 @@ describe("Unit Token Contract", function () {
     });
 
     it("should allow anyone to burn their own tokens", async function () {
-      await unit.mint(user2.address, convert("500", 18));
+      await unit.connect(rig).mint(user2.address, convert("500", 18));
       await unit.connect(user2).burn(convert("200", 18));
       expect(await unit.balanceOf(user2.address)).to.equal(convert("300", 18));
     });
@@ -145,7 +166,7 @@ describe("Unit Token Contract", function () {
 
   describe("ERC20 Standard Functions", function () {
     beforeEach("Mint tokens", async function () {
-      await unit.mint(user1.address, convert("1000", 18));
+      await unit.connect(rig).mint(user1.address, convert("1000", 18));
     });
 
     it("should allow transfers between accounts", async function () {
@@ -178,7 +199,7 @@ describe("Unit Token Contract", function () {
 
   describe("ERC20Votes Functions", function () {
     beforeEach("Mint tokens", async function () {
-      await unit.mint(user1.address, convert("1000", 18));
+      await unit.connect(rig).mint(user1.address, convert("1000", 18));
     });
 
     it("should allow self-delegation", async function () {
@@ -196,7 +217,7 @@ describe("Unit Token Contract", function () {
 
     it("should update votes after transfer when delegated", async function () {
       await unit.connect(user1).delegate(user1.address);
-      await unit.mint(user2.address, convert("500", 18));
+      await unit.connect(rig).mint(user2.address, convert("500", 18));
       await unit.connect(user2).delegate(user2.address);
 
       expect(await unit.getVotes(user1.address)).to.equal(convert("1000", 18));
