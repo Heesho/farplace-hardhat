@@ -34,7 +34,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     uint256 public constant ABS_MAX_INIT_PRICE = type(uint192).max;
 
     uint256 public constant INITIAL_UPS = 4 ether;
-    uint256 public constant HALVING_PERIOD = 30 days;
+    uint256 public constant HALVING_AMOUNT = 10_000_000 ether;
     uint256 public constant TAIL_UPS = 0.01 ether;
 
     uint256 public constant DEFAULT_MULTIPLIER = 1e18;
@@ -53,6 +53,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     address public treasury;
     address public team;
     uint256 public capacity = 1;
+    uint256 public totalMinted;
     mapping(address => bool) public account_IsFaction;
     uint256[] public multipliers;
 
@@ -192,6 +193,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         uint256 minedAmount = mineTime * slotCache.ups * slotCache.multiplier / PRECISION;
 
         if (slotCache.miner != address(0)) {
+            totalMinted += minedAmount;
             IUnit(unit).mint(slotCache.miner, minedAmount);
             emit Rig__Mint(slotCache.miner, index, epochId, minedAmount);
         }
@@ -202,7 +204,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         slotCache.initPrice = newInitPrice;
         slotCache.startTime = block.timestamp;
         slotCache.miner = miner;
-        slotCache.ups = _getUpsFromTime(block.timestamp) / capacity;
+        slotCache.ups = _getUpsFromSupply() / capacity;
         slotCache.uri = uri;
 
         bool shouldUpdateMultiplier = block.timestamp - slotCache.lastMultiplierTime > MULTIPLIER_DURATION;
@@ -270,8 +272,15 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
         return slotCache.initPrice - slotCache.initPrice * timePassed / EPOCH_PERIOD;
     }
 
-    function _getUpsFromTime(uint256 time) internal view returns (uint256 ups) {
-        uint256 halvings = time <= startTime ? 0 : (time - startTime) / HALVING_PERIOD;
+    function _getUpsFromSupply() internal view returns (uint256 ups) {
+        uint256 halvings = 0;
+        uint256 threshold = HALVING_AMOUNT;
+
+        while (totalMinted >= threshold && halvings < 64) {
+            halvings++;
+            threshold += HALVING_AMOUNT >> halvings;
+        }
+
         ups = INITIAL_UPS >> halvings;
         if (ups < TAIL_UPS) ups = TAIL_UPS;
         return ups;
@@ -332,7 +341,7 @@ contract Rig is IEntropyConsumer, ReentrancyGuard, Ownable {
     }
 
     function getUps() external view returns (uint256) {
-        return _getUpsFromTime(block.timestamp);
+        return _getUpsFromSupply();
     }
 
     function getSlot(uint256 index) external view returns (Slot memory) {

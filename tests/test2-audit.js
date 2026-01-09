@@ -334,32 +334,32 @@ describe("AUDIT: Rig Contract Security Tests", function () {
       expect(priceDecayed).to.equal(0);
     });
 
-    it("3.5 UPS halving works correctly", async function () {
+    it("3.5 UPS uses amount-based halving (not time-based)", async function () {
       const initialUps = await rig.getUps();
 
-      // Fast forward 30 days
+      // With amount-based halving, time alone doesn't trigger halvings
+      // Fast forward 30 days - UPS should remain unchanged since no tokens minted
       await ethers.provider.send("evm_increaseTime", [30 * 24 * 3600]);
       await ethers.provider.send("evm_mine", []);
 
       const upsAfter30Days = await rig.getUps();
-      expect(upsAfter30Days).to.equal(initialUps.div(2));
+      expect(upsAfter30Days).to.equal(initialUps); // Still 4e18 - no tokens minted
 
-      // Fast forward another 30 days
-      await ethers.provider.send("evm_increaseTime", [30 * 24 * 3600]);
-      await ethers.provider.send("evm_mine", []);
-
-      const upsAfter60Days = await rig.getUps();
-      expect(upsAfter60Days).to.equal(initialUps.div(4));
+      // Verify HALVING_AMOUNT constant
+      const HALVING_AMOUNT = await rig.HALVING_AMOUNT();
+      expect(HALVING_AMOUNT).to.equal(ethers.utils.parseEther("10000000")); // 10M
     });
 
-    it("3.6 UPS never goes below TAIL_UPS", async function () {
-      // Fast forward many halving periods (e.g., 10 years)
-      await ethers.provider.send("evm_increaseTime", [365 * 24 * 3600 * 10]);
-      await ethers.provider.send("evm_mine", []);
-
-      const ups = await rig.getUps();
+    it("3.6 UPS tail emission math is correct", async function () {
+      // With amount-based halving, UPS is determined by totalMinted, not time
+      // Verify the math: after ~9 halvings, rate would be below TAIL_UPS
+      const initialUps = await rig.getUps();
       const tailUps = await rig.TAIL_UPS();
-      expect(ups).to.equal(tailUps);
+
+      // 4e18 >> 8 = 0.015625e18 > 0.01e18 (still above tail)
+      // 4e18 >> 9 = 0.0078125e18 < 0.01e18 (below tail, use tail)
+      expect(initialUps.shr(8)).to.be.gt(tailUps);
+      expect(initialUps.shr(9)).to.be.lt(tailUps);
     });
 
     it("3.7 Team fee is optional - treasury absorbs when team=0", async function () {

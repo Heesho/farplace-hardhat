@@ -323,25 +323,22 @@ describe("Stress Tests", function () {
   });
 
   describe("3. Long-Term Simulation", function () {
-    it("3.1 Should correctly halve UPS over 6 months (6 halvings)", async function () {
+    it("3.1 Should use amount-based halving (not time-based)", async function () {
       const initialUps = await rig.getUps();
 
-      // Fast forward 6 months (180 days = 6 halving periods)
+      // With amount-based halving, UPS doesn't change with time alone
+      // Fast forward 6 months - UPS should remain unchanged since no tokens minted
       await ethers.provider.send("evm_increaseTime", [180 * 24 * 3600]);
       await ethers.provider.send("evm_mine", []);
 
       const upsAfter = await rig.getUps();
 
-      // Should be initial / 64 (2^6) = initial / 64
-      // But may be at TAIL_UPS if initial / 64 < TAIL_UPS
-      const tailUps = await rig.TAIL_UPS();
-      const expectedUps = initialUps.div(64);
+      // UPS should still be INITIAL_UPS because totalMinted is still 0
+      expect(upsAfter).to.equal(initialUps);
 
-      if (expectedUps.lt(tailUps)) {
-        expect(upsAfter).to.equal(tailUps);
-      } else {
-        expect(upsAfter).to.equal(expectedUps);
-      }
+      // Verify HALVING_AMOUNT constant
+      const HALVING_AMOUNT = await rig.HALVING_AMOUNT();
+      expect(HALVING_AMOUNT).to.equal(ethers.utils.parseEther("10000000")); // 10M
     });
 
     it("3.2 Should accumulate significant rewards over long mining period", async function () {
